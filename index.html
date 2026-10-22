@@ -1,0 +1,3480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AeroSim Pro | DJI 3D Drone Flight Simulator</title>
+  <meta name="description" content="Production-grade 3D Quadcopter Drone Flight Simulator with DJI Controller Gamepad API support, realistic multirotor physics, and interactive O3 telemetry HUD.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Modern Three.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #080c14;
+      --panel-bg: rgba(10, 16, 26, 0.78);
+      --panel-border: rgba(0, 229, 255, 0.22);
+      --panel-border-bright: rgba(0, 229, 255, 0.6);
+      --accent-cyan: #00e5ff;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --font-display: 'Orbitron', -apple-system, sans-serif;
+      --font-hud: 'Rajdhani', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-hud);
+      touch-action: none;
+    }
+
+    #viewport-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    canvas#webgl-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* ==========================================================================
+       DJI PILOT / O3 TELEMETRY HUD OVERLAY
+       ========================================================================== */
+    #hud-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px 20px;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+      transition: opacity 0.25s ease;
+    }
+
+    .interactive {
+      pointer-events: auto;
+    }
+
+    /* TOP STATUS BAR */
+    .hud-top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .hud-chip-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .hud-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .hud-pill.mode-normal {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+    }
+
+    .hud-pill.mode-sport {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.4);
+    }
+
+    .hud-pill.mode-acro {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.4);
+    }
+
+    .hud-pill.mode-cine {
+      background: rgba(0, 229, 255, 0.2);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-main);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse-dot 1.8s infinite;
+    }
+
+    .status-dot.warn {
+      background: var(--accent-yellow);
+      box-shadow: 0 0 8px var(--accent-yellow);
+    }
+
+    .status-dot.danger {
+      background: var(--accent-red);
+      box-shadow: 0 0 8px var(--accent-red);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .hud-center-status {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .flight-status-banner {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: var(--accent-green);
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 4px 16px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+
+    .hud-top-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .hud-btn {
+      background: var(--panel-bg);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      padding: 6px 12px;
+      font-family: var(--font-hud);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .hud-btn:hover {
+      background: rgba(0, 229, 255, 0.18);
+      border-color: var(--panel-border-bright);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+
+    .hud-btn:active {
+      transform: translateY(1px);
+    }
+
+    /* CENTER HORIZON & ATTITUDE HUD */
+    .hud-center-horizon {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 440px;
+      height: 340px;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #attitude-canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* LEFT SPEED & DISTANCE TAPES */
+    .hud-mid-section {
+      position: absolute;
+      top: 50%;
+      left: 20px;
+      right: 20px;
+      transform: translateY(-50%);
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .telemetry-column {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--panel-border);
+      padding: 10px 14px;
+      border-radius: 10px;
+      min-width: 130px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .telem-row {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .telem-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .telem-value {
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .telem-unit {
+      font-size: 11px;
+      color: var(--accent-cyan);
+      margin-left: 2px;
+      font-family: var(--font-hud);
+      font-weight: 600;
+    }
+
+    /* BOTTOM DOCK & RADAR */
+    .hud-bottom-bar {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      width: 100%;
+      gap: 16px;
+    }
+
+    .hud-bottom-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    /* MINI MAP / COMPASS RADAR */
+    .radar-container {
+      position: relative;
+      width: 130px;
+      height: 130px;
+      border-radius: 50%;
+      background: rgba(8, 12, 20, 0.85);
+      border: 1px solid rgba(0, 229, 255, 0.4);
+      box-shadow: 0 0 20px rgba(0, 229, 255, 0.15), inset 0 0 15px rgba(0, 0, 0, 0.8);
+      overflow: hidden;
+    }
+
+    #radar-canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* FLIGHT CONTROL QUICK BADGES */
+    .controls-help-pill {
+      background: var(--panel-bg);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .key-tag {
+      display: inline-block;
+      padding: 1px 5px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 3px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    /* THROTTLE / MOTOR RPM BAR */
+    .motor-power-panel {
+      background: var(--panel-bg);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 170px;
+    }
+
+    .rpm-bar-container {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      display: flex;
+    }
+
+    .rpm-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+      transition: width 0.05s linear;
+      box-shadow: 0 0 6px var(--accent-cyan);
+    }
+
+    .hud-bottom-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .action-btn {
+      padding: 8px 16px;
+      font-family: var(--font-display);
+      font-size: 12px;
+      letter-spacing: 1px;
+      font-weight: 700;
+      border-radius: 6px;
+      text-transform: uppercase;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-arm {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-arm:hover {
+      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.6);
+      transform: translateY(-2px);
+    }
+
+    .btn-disarm {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+    }
+
+    .btn-disarm:hover {
+      box-shadow: 0 6px 18px rgba(239, 68, 68, 0.6);
+      transform: translateY(-2px);
+    }
+
+    /* ==========================================================================
+       CALIBRATION & CONTROLLER DIAGNOSTICS MODAL
+       ========================================================================== */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(4, 7, 12, 0.85);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      padding: 16px;
+    }
+
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: rgba(13, 20, 32, 0.95);
+      border: 1px solid var(--panel-border-bright);
+      border-radius: 14px;
+      width: 100%;
+      max-width: 680px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 229, 255, 0.15);
+      display: flex;
+      flex-direction: column;
+      animation: modal-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modal-enter {
+      from { transform: scale(0.94) translateY(12px); }
+      to { transform: scale(1) translateY(0); }
+    }
+
+    .modal-header {
+      padding: 18px 22px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 24px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px;
+      transition: color 0.15s ease;
+    }
+
+    .modal-close-btn:hover {
+      color: #fff;
+    }
+
+    .modal-body {
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* TWIN GIMBALS DISPLAY */
+    .gimbals-showcase {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .gimbal-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .gimbal-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .stick-pad {
+      position: relative;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #172233 0%, #0d141e 100%);
+      border: 2px solid rgba(0, 229, 255, 0.3);
+      box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.8), 0 0 15px rgba(0, 229, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stick-crosshair-h {
+      position: absolute;
+      width: 100%;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .stick-crosshair-v {
+      position: absolute;
+      height: 100%;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .stick-deadzone-ring {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1px dashed rgba(0, 229, 255, 0.3);
+      pointer-events: none;
+    }
+
+    .stick-thumb {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #00e5ff 0%, #0284c7 80%);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), 0 0 12px rgba(0, 229, 255, 0.8);
+      border: 2px solid #fff;
+      transform: translate(0px, 0px);
+      transition: transform 0.04s linear;
+      pointer-events: none;
+    }
+
+    .stick-coords {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* CONFIGURATION CONTROLS */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .setting-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .setting-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .setting-val-tag {
+      font-family: var(--font-mono);
+      color: var(--accent-cyan);
+    }
+
+    .styled-range {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      outline: none;
+    }
+
+    .styled-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan);
+      cursor: pointer;
+    }
+
+    .toggle-group {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .toggle-chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 8px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .toggle-chip.active {
+      background: rgba(0, 229, 255, 0.2);
+      border-color: var(--accent-cyan);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+    }
+
+    .select-dropdown {
+      background: rgba(10, 16, 26, 0.9);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      color: #fff;
+      padding: 8px 12px;
+      font-family: var(--font-hud);
+      font-size: 13px;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .select-dropdown:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* TOAST ALERTS */
+    #toast-msg {
+      position: fixed;
+      top: 75px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(13, 20, 32, 0.92);
+      border: 1px solid var(--accent-cyan);
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(0, 229, 255, 0.3);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #toast-msg.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* GATE NOTIFICATION POPUP */
+    #gate-popup {
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.6);
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 800;
+      color: #fff;
+      text-shadow: 0 0 20px #00e5ff, 0 0 40px #00e5ff;
+      letter-spacing: 2px;
+      pointer-events: none;
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 50;
+    }
+
+    #gate-popup.active {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1.1);
+    }
+
+    /* DJI REMOTE MANAGER & DISCOVERY STYLES */
+    .radar-pulse-ring {
+      position: relative;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      border: 2px solid var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 4px auto 14px;
+      color: var(--accent-cyan);
+    }
+    .radar-pulse-ring::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px solid var(--accent-cyan);
+      animation: radar-expand 1.8s infinite cubic-bezier(0.2, 0.8, 0.4, 1);
+    }
+    @keyframes radar-expand {
+      0% { transform: scale(0.9); opacity: 0.9; }
+      100% { transform: scale(2.0); opacity: 0; }
+    }
+    .rc-device-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .rc-device-card:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.06);
+    }
+    .rc-device-card.connected {
+      border-color: var(--accent-green);
+      background: rgba(16, 185, 129, 0.08);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+    }
+    .rc-icon-box {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: rgba(0, 229, 255, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-cyan);
+      flex-shrink: 0;
+    }
+    .rc-icon-box.connected {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-green);
+    }
+    .rc-device-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .rc-device-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+    }
+    .rc-device-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .toggle-switch-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 14px;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.15);
+      transition: .3s;
+      border-radius: 24px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: var(--accent-green);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+
+    /* DRONE SELECTION HANGAR STYLES */
+    .drone-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .drone-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+    .drone-card:hover {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.06);
+      transform: translateY(-2px);
+    }
+    .drone-card.selected {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 229, 255, 0.1);
+      box-shadow: 0 0 25px rgba(0, 229, 255, 0.2);
+    }
+    .drone-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .drone-spec-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* RESPONSIVE LAYOUT */
+    @media (max-width: 768px) {
+      .hud-center-horizon {
+        width: 300px;
+        height: 240px;
+      }
+      .telemetry-column {
+        min-width: 100px;
+        padding: 6px 10px;
+      }
+      .telem-value {
+        font-size: 16px;
+      }
+      .controls-help-pill {
+        display: none;
+      }
+      .gimbals-showcase {
+        grid-template-columns: 1fr;
+      }
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 3D WebGL Canvas Layer -->
+  <div id="viewport-container">
+    <canvas id="webgl-canvas"></canvas>
+  </div>
+
+  <!-- DJI Pilot / O3 Telemetry HUD Overlay -->
+  <div id="hud-overlay">
+    
+    <!-- TOP STATUS ROW -->
+    <header class="hud-top-bar">
+      <div class="hud-chip-group interactive">
+        <div id="flight-mode-pill" class="hud-pill mode-normal" title="Press 'M' to switch modes">NORMAL MODE</div>
+        <div class="status-badge">
+          <div id="gps-dot" class="status-dot"></div>
+          <span id="gps-sat-text">26 SATS</span>
+        </div>
+        <div class="status-badge">
+          <span style="color:var(--accent-cyan); font-weight:bold;">O3+</span>
+          <span id="rf-link-text">98% 50Mbps</span>
+        </div>
+      </div>
+
+      <div class="hud-center-status">
+        <div id="status-banner" class="flight-status-banner">READY TO FLY (GPS)</div>
+      </div>
+
+      <div class="hud-top-right interactive">
+        <div class="hud-chip-group">
+          <div class="status-badge">
+            <span style="color:var(--accent-green);">&#9889;</span>
+            <span id="batt-pct">98%</span>
+            <span id="batt-volt" style="color:var(--text-muted); font-size:11px;">16.4V</span>
+          </div>
+        </div>
+
+        <!-- Drone Model Selector Button -->
+        <button id="btn-drone-select" class="hud-btn" title="Select Aircraft & Dynamics (DJI Mini 4 Pro / DJI Avata 2)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14"/></svg>
+          <span id="selected-drone-label">DJI MINI 4 PRO</span>
+        </button>
+
+        <!-- View Mode Toggle Button (Normal LOS / FPV Cockpit) -->
+        <button id="btn-camera-toggle" class="hud-btn" title="Toggle Perspective: Normal Third-Person vs FPV Cockpit (Key: V or C)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          <span id="cam-mode-label">NORMAL (LOS)</span>
+        </button>
+
+        <button id="btn-rc-manager" class="hud-btn" title="DJI Remote Discovery & Auto-Connect">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><circle cx="12" cy="20" r="1"></circle></svg>
+          <span id="top-rc-status">DJI RC: SCANNING...</span>
+        </button>
+
+        <button id="btn-calib-modal" class="hud-btn" title="Gamepad & Gimbal Calibration">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>CALIBRATE</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- ARTIFICIAL HORIZON & ATTITUDE INDICATOR (CENTER) -->
+    <div class="hud-center-horizon">
+      <canvas id="attitude-canvas" width="440" height="340"></canvas>
+    </div>
+
+    <!-- LEFT & RIGHT TELEMETRY DATA -->
+    <div class="hud-mid-section">
+      <!-- Left Tape: Velocity & Distance -->
+      <div class="telemetry-column">
+        <div class="telem-row">
+          <div class="telem-label"><span>H.SPEED</span><span>SPD</span></div>
+          <div class="telem-value"><span id="val-hspeed">0.0</span><span class="telem-unit">m/s</span></div>
+        </div>
+        <div class="telem-row">
+          <div class="telem-label"><span>V.SPEED</span><span>VSI</span></div>
+          <div class="telem-value"><span id="val-vspeed">+0.0</span><span class="telem-unit">m/s</span></div>
+        </div>
+        <div class="telem-row">
+          <div class="telem-label"><span>DIST HOME</span><span>D</span></div>
+          <div class="telem-value"><span id="val-dist">0</span><span class="telem-unit">m</span></div>
+        </div>
+      </div>
+
+      <!-- Right Tape: Altitude & Heading -->
+      <div class="telemetry-column" style="align-items: flex-end; text-align: right;">
+        <div class="telem-row">
+          <div class="telem-label"><span>ALTITUDE</span><span>AGL</span></div>
+          <div class="telem-value"><span id="val-alt">0.0</span><span class="telem-unit">m</span></div>
+        </div>
+        <div class="telem-row">
+          <div class="telem-label"><span>HEADING</span><span>HDG</span></div>
+          <div class="telem-value"><span id="val-heading">000</span><span class="telem-unit">°</span></div>
+        </div>
+        <div class="telem-row">
+          <div class="telem-label"><span>GATES HIT</span><span>SCORE</span></div>
+          <div class="telem-value" style="color:var(--accent-cyan);"><span id="val-score">0</span><span class="telem-unit">/ 5</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM INSTRUMENTS & RADAR COMPASS -->
+    <footer class="hud-bottom-bar">
+      <div class="hud-bottom-left interactive">
+        <!-- Circular Mini Radar / Pilot Orientation Compass -->
+        <div class="radar-container" title="Radar Map: Green dot is Home, Arrow is Drone">
+          <canvas id="radar-canvas" width="130" height="130"></canvas>
+        </div>
+
+        <!-- Motor Throttle & RPM Bar -->
+        <div class="motor-power-panel">
+          <div class="telem-label">
+            <span>COLLECTIVE THRUST</span>
+            <span id="val-thrust-pct">0%</span>
+          </div>
+          <div class="rpm-bar-container">
+            <div id="rpm-bar-fill" class="rpm-bar-fill"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">
+            <span>MOTORS: <span id="motor-state-text" style="color:var(--accent-red); font-weight:bold;">DISARMED</span></span>
+            <span id="val-rpm">0 RPM</span>
+          </div>
+        </div>
+
+        <!-- Quick Controls Pill -->
+        <div class="controls-help-pill">
+          <div><span class="key-tag">W/S</span> Throttle &bull; <span class="key-tag">A/D</span> Yaw</div>
+          <div><span class="key-tag">&uarr;&darr;&larr;&rarr;</span> Pitch &amp; Roll</div>
+          <div><span class="key-tag">SPACE</span> Arm/Disarm &bull; <span class="key-tag">R</span> Reset</div>
+        </div>
+      </div>
+
+      <div class="hud-bottom-right interactive">
+        <button id="btn-reset-pos" class="hud-btn" title="Reset Drone to Launch Pad (R)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          <span>RESET PAD</span>
+        </button>
+
+        <button id="btn-toggle-arm" class="action-btn btn-arm" title="Arm or Disarm Quadcopter Motors (Spacebar)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+          <span id="btn-arm-text">ARM MOTORS</span>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- DRONE HANGAR / SELECTION MODAL -->
+  <div id="drone-select-modal" class="modal-backdrop">
+    <div class="modal-card" style="max-width: 660px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent-cyan)"><path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14"/></svg>
+          SELECT AIRCRAFT &amp; FLIGHT SPECS
+        </div>
+        <button id="btn-close-drone-modal" class="modal-close-btn">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:-4px;">
+          Choose your airframe. Aerodynamics, motor power, thrust-to-weight ratio, and flight perspectives will dynamically reconfigure.
+        </div>
+
+        <div class="drone-grid">
+          <!-- CARD 1: DJI MINI 4 PRO -->
+          <div id="card-drone-mini" class="drone-card selected" data-drone="mini">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-family:var(--font-display); font-size:18px; font-weight:800; color:#fff;">DJI MINI 4 PRO</div>
+                <div style="font-size:12px; color:var(--accent-cyan);">Ultralight Folding Quad</div>
+              </div>
+              <span class="drone-badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(52,211,153,0.4);">NORMAL &amp; FPV</span>
+            </div>
+
+            <!-- Drone preview visual representation -->
+            <div style="height:90px; background:radial-gradient(circle, rgba(0,229,255,0.1) 0%, rgba(0,0,0,0.4) 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.05);">
+              <svg width="70" height="70" viewBox="0 0 100 100" fill="none" stroke="#e2e8f0" stroke-width="2.5">
+                <rect x="42" y="30" width="16" height="40" rx="6" fill="#1e293b" stroke="#00e5ff" />
+                <line x1="42" y1="36" x2="18" y2="20" stroke="#94a3b8" stroke-width="3" />
+                <line x1="58" y1="36" x2="82" y2="20" stroke="#94a3b8" stroke-width="3" />
+                <line x1="42" y1="64" x2="16" y2="80" stroke="#94a3b8" stroke-width="3" />
+                <line x1="58" y1="64" x2="84" y2="80" stroke="#94a3b8" stroke-width="3" />
+                <circle cx="18" cy="20" r="10" stroke="#38bdf8" stroke-dasharray="3,3" />
+                <circle cx="82" cy="20" r="10" stroke="#38bdf8" stroke-dasharray="3,3" />
+                <circle cx="16" cy="80" r="10" stroke="#38bdf8" stroke-dasharray="3,3" />
+                <circle cx="84" cy="80" r="10" stroke="#38bdf8" stroke-dasharray="3,3" />
+                <circle cx="50" cy="32" r="3" fill="#00e5ff" />
+              </svg>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <div class="drone-spec-row"><span>Takeoff Weight</span><span style="font-family:var(--font-mono); color:#fff;">&lt; 249 g</span></div>
+              <div class="drone-spec-row"><span>Max Flight Speed</span><span style="font-family:var(--font-mono); color:#fff;">16.0 m/s (57 km/h)</span></div>
+              <div class="drone-spec-row"><span>Thrust-to-Weight</span><span style="font-family:var(--font-mono); color:#fff;">2.2 : 1</span></div>
+              <div class="drone-spec-row"><span>Flight Views</span><span style="font-family:var(--font-mono); color:var(--accent-green);">Normal (LOS) &amp; FPV</span></div>
+            </div>
+
+            <button class="hud-btn btn-pick-drone" data-drone="mini" style="width:100%; justify-content:center; margin-top:4px; background:rgba(0,229,255,0.15); border-color:var(--accent-cyan); color:#fff;">
+              SELECT MINI 4 PRO
+            </button>
+          </div>
+
+          <!-- CARD 2: DJI AVATA 2 -->
+          <div id="card-drone-avata" class="drone-card" data-drone="avata">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-family:var(--font-display); font-size:18px; font-weight:800; color:#fff;">DJI AVATA 2</div>
+                <div style="font-size:12px; color:#f59e0b;">FPV Cinewhoop Racer</div>
+              </div>
+              <span class="drone-badge" style="background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(251,191,36,0.4);">LOCKED TO FPV</span>
+            </div>
+
+            <!-- Avata ducted whoop visual representation -->
+            <div style="height:90px; background:radial-gradient(circle, rgba(245,158,11,0.1) 0%, rgba(0,0,0,0.4) 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,0.05);">
+              <svg width="70" height="70" viewBox="0 0 100 100" fill="none" stroke="#e2e8f0" stroke-width="2.5">
+                <circle cx="32" cy="34" r="14" stroke="#f59e0b" stroke-width="3" fill="rgba(245,158,11,0.08)" />
+                <circle cx="68" cy="34" r="14" stroke="#f59e0b" stroke-width="3" fill="rgba(245,158,11,0.08)" />
+                <circle cx="32" cy="68" r="14" stroke="#f59e0b" stroke-width="3" fill="rgba(245,158,11,0.08)" />
+                <circle cx="68" cy="68" r="14" stroke="#f59e0b" stroke-width="3" fill="rgba(245,158,11,0.08)" />
+                <rect x="42" y="24" width="16" height="52" rx="4" fill="#0f172a" stroke="#f59e0b" />
+                <circle cx="50" cy="27" r="4" fill="#ef4444" />
+              </svg>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <div class="drone-spec-row"><span>Takeoff Weight</span><span style="font-family:var(--font-mono); color:#fff;">410 g (Ducted)</span></div>
+              <div class="drone-spec-row"><span>Max Flight Speed</span><span style="font-family:var(--font-mono); color:#f59e0b;">27.0 m/s (97 km/h)</span></div>
+              <div class="drone-spec-row"><span>Thrust-to-Weight</span><span style="font-family:var(--font-mono); color:#f59e0b;">4.1 : 1 (Agile)</span></div>
+              <div class="drone-spec-row"><span>Flight Views</span><span style="font-family:var(--font-mono); color:#f59e0b;">FPV Cockpit Only</span></div>
+            </div>
+
+            <button class="hud-btn btn-pick-drone" data-drone="avata" style="width:100%; justify-content:center; margin-top:4px;">
+              SELECT AVATA 2
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTROLLER CALIBRATION & DIAGNOSTICS MODAL -->
+  <div id="calib-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent-cyan)"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="6" cy="12" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M12 9v6"></path><path d="M9 12h6"></path></svg>
+          CONTROLLER DIAGNOSTICS &amp; CALIBRATION
+        </div>
+        <button id="btn-close-modal" class="modal-close-btn">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Connection Banner -->
+        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div id="calib-conn-dot" class="status-dot"></div>
+            <span id="calib-conn-text" style="font-weight:700; font-size:13px;">Using Keyboard Controls</span>
+          </div>
+          <span id="calib-pad-id" style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">No Gamepad Connected</span>
+        </div>
+
+        <!-- Twin Gimbals Stick Monitor -->
+        <div class="gimbals-showcase">
+          <!-- Left Stick (Mode 2: Yaw & Throttle) -->
+          <div class="gimbal-box">
+            <div class="gimbal-label">LEFT STICK (THROTTLE / YAW)</div>
+            <div class="stick-pad">
+              <div class="stick-crosshair-h"></div>
+              <div class="stick-crosshair-v"></div>
+              <div id="left-stick-deadband" class="stick-deadzone-ring"></div>
+              <div id="left-stick-thumb" class="stick-thumb"></div>
+            </div>
+            <div id="left-stick-coords" class="stick-coords">X: 0.00 | Y: 0.00</div>
+          </div>
+
+          <!-- Right Stick (Mode 2: Roll & Pitch) -->
+          <div class="gimbal-box">
+            <div class="gimbal-label">RIGHT STICK (PITCH / ROLL)</div>
+            <div class="stick-pad">
+              <div class="stick-crosshair-h"></div>
+              <div class="stick-crosshair-v"></div>
+              <div id="right-stick-deadband" class="stick-deadzone-ring"></div>
+              <div id="right-stick-thumb" class="stick-thumb"></div>
+            </div>
+            <div id="right-stick-coords" class="stick-coords">X: 0.00 | Y: 0.00</div>
+          </div>
+        </div>
+
+        <!-- Axis Inversion Toggles -->
+        <div class="setting-item">
+          <div class="setting-label"><span>AXIS INVERSION</span></div>
+          <div class="toggle-group">
+            <div id="tog-inv-roll" class="toggle-chip">INV ROLL</div>
+            <div id="tog-inv-pitch" class="toggle-chip active">INV PITCH</div>
+            <div id="tog-inv-yaw" class="toggle-chip">INV YAW</div>
+            <div id="tog-inv-throttle" class="toggle-chip active">INV THROTTLE</div>
+          </div>
+        </div>
+
+        <!-- Deadband & Expo Sliders -->
+        <div class="settings-grid">
+          <div class="setting-item">
+            <div class="setting-label">
+              <span>DEADBAND THRESHOLD</span>
+              <span id="val-deadband-tag" class="setting-val-tag">0.05</span>
+            </div>
+            <input id="slider-deadband" type="range" class="styled-range" min="0" max="0.25" step="0.01" value="0.05">
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <span>EXPO CURVE (SMOOTHING)</span>
+              <span id="val-expo-tag" class="setting-val-tag">0.35</span>
+            </div>
+            <input id="slider-expo" type="range" class="styled-range" min="0" max="0.9" step="0.05" value="0.35">
+          </div>
+        </div>
+
+        <!-- Channel Mapping Preset Selector -->
+        <div class="settings-grid">
+          <div class="setting-item">
+            <div class="setting-label"><span>CHANNEL PRESET</span></div>
+            <select id="sel-preset" class="select-dropdown">
+              <option value="dji_bridge">DJI RC Bridge / Standard Quad (0:Roll, 1:Pitch, 2:Yaw, 3:Throt)</option>
+              <option value="standard_gamepad">Standard Gamepad / Xbox (0:Yaw, 1:Throt, 2:Roll, 3:Pitch)</option>
+              <option value="mode1">Drone Mode 1 (Throt/Roll Right, Pitch/Yaw Left)</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label"><span>FLIGHT MODE SELECT</span></div>
+            <select id="sel-modal-mode" class="select-dropdown">
+              <option value="normal">NORMAL (Auto-Level, 35° Tilt Limit)</option>
+              <option value="sport">SPORT (Snappy, 60° Tilt, Fast)</option>
+              <option value="cine">CINEMATIC (Ultra Smooth, 18° Tilt)</option>
+              <option value="acro">ACRO / RATE (Manual FPV Freeride)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="font-size:12px; color:var(--text-muted); line-height:1.5; background:rgba(0,229,255,0.06); padding:10px 14px; border-radius:8px; border-left:3px solid var(--accent-cyan);">
+          <strong>DJI RC Tip:</strong> Connect your DJI RC / RC Pro / RC-N1 controller via USB-C to PC or run your local bridge tool. Click anywhere on the screen or wiggle the sticks to wake the HTML5 Gamepad API.
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- DJI REMOTE MANAGER & AUTO-CONNECT MODAL -->
+  <div id="rc-manager-modal" class="modal-backdrop">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--accent-cyan)"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><circle cx="12" cy="20" r="1"></circle></svg>
+          DJI REMOTE DISCOVERY &amp; AUTO-CONNECT
+        </div>
+        <button id="btn-close-rc-modal" class="modal-close-btn">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Live Radar Scan Graphic -->
+        <div style="text-align:center;">
+          <div class="radar-pulse-ring">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="6" cy="12" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M12 9v6"></path><path d="M9 12h6"></path></svg>
+          </div>
+          <div id="rc-scan-headline" style="font-family:var(--font-display); font-size:15px; font-weight:700; color:#fff; letter-spacing:0.5px;">SEARCHING FOR DJI CONTROLLERS...</div>
+          <div id="rc-scan-subtitle" style="font-size:12px; color:var(--text-muted); margin-top:2px;">Scanning local Wi-Fi and USB interfaces automatically</div>
+        </div>
+
+        <!-- Auto-Connect Toggle -->
+        <div class="toggle-switch-wrapper">
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <span style="font-weight:700; font-size:13px; color:#fff;">Automatic Wi-Fi Connection</span>
+            <span style="font-size:11px; color:var(--text-muted);">Automatically connect whenever remote is turned on same Wi-Fi</span>
+          </div>
+          <label class="toggle-switch">
+            <input id="chk-auto-connect" type="checkbox" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Discovered Controllers Container -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:12px; font-weight:700; color:var(--accent-cyan); text-transform:uppercase; letter-spacing:0.5px;">Visible Remotes Nearby</span>
+            <button id="btn-scan-now" class="hud-btn" style="padding:4px 10px; font-size:11px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+              <span>SCAN WI-FI NOW</span>
+            </button>
+          </div>
+
+          <div id="rc-device-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Quick Action & Emulation -->
+        <div style="display:flex; gap:10px; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.25); padding:12px; border-radius:8px; border-left:3px solid var(--accent-yellow); border-radius:8px;">
+          <div style="font-size:12px; color:var(--text-muted); line-height:1.4;">
+            Don't have the physical RC turned on right now?
+          </div>
+          <button id="btn-demo-rc" class="hud-btn" style="border-color:var(--accent-yellow); color:#fff; font-size:11px; white-space:nowrap;">
+            START DEMO RC
+          </button>
+        </div>
+
+        <!-- Simple 3-Step Non-Technical Setup Guide -->
+        <div style="font-size:12px; color:var(--text-muted); line-height:1.5; background:rgba(0,229,255,0.06); padding:12px 16px; border-radius:8px; border-left:3px solid var(--accent-cyan);">
+          <div style="font-weight:700; color:#fff; margin-bottom:4px;">Zero Technical Setup:</div>
+          <ol style="margin-left:16px; display:flex; flex-direction:column; gap:3px;">
+            <li>Turn on your <strong>DJI RC (with screen)</strong>.</li>
+            <li>Connect it to the <strong>same Wi-Fi network</strong> as this laptop.</li>
+            <li>That's it! The remote will appear above and connect automatically in ~2 seconds.</li>
+          </ol>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION & GATE POPUP -->
+  <div id="toast-msg">TOAST MESSAGE</div>
+  <div id="gate-popup">GATE CLEARED!</div>
+
+  <!-- ==========================================================================
+       MAIN JAVASCRIPT APPLICATION LOGIC
+       ========================================================================== -->
+  <script>
+    /* ==========================================================================
+       AUDIO SYNTHESIZER (WEB AUDIO API)
+       Realistic quadcopter brushless motor sound generator & alert beeps
+       ========================================================================== */
+    /* ==========================================================================
+       DRONE SPECIFICATIONS & PERFORMANCE PROFILES
+       ========================================================================== */
+    const DRONE_PROFILES = {
+      mini: {
+        id: 'mini',
+        name: 'DJI Mini 4 Pro',
+        tagline: 'Ultralight Consumer Drone',
+        mass: 0.249, // 249g
+        maxThrust: 6.8, // ~2.8:1 thrust-to-weight
+        linearDragCoeff: 0.22,
+        linearDragQuadCoeff: 0.016,
+        angularDamping: 5.2,
+        maxTiltNormal: 35, // deg
+        maxTiltSport: 48,  // deg
+        angularRateNormal: 6.5,
+        angularRateSport: 10.0,
+        yawRate: 2.5, // rad/s
+        maxSpeed: 16.0, // m/s (~57 km/h)
+        idleRpm: 2200,
+        maxRpm: 13500,
+        supportsNormalView: true,
+        supportsFpvView: true,
+        defaultView: 'chase',
+        soundBaseFreqs: [85, 120, 170, 240]
+      },
+      avata: {
+        id: 'avata',
+        name: 'DJI Avata 2',
+        tagline: 'FPV Cinewhoop Racer',
+        mass: 0.410, // 410g
+        maxThrust: 17.5, // ~4.3:1 thrust-to-weight (extremely agile!)
+        linearDragCoeff: 0.15,
+        linearDragQuadCoeff: 0.010,
+        angularDamping: 3.6,
+        maxTiltNormal: 45, // deg
+        maxTiltSport: 65,  // deg
+        angularRateNormal: 12.0,
+        angularRateSport: 20.0,
+        yawRate: 5.0, // rad/s
+        maxSpeed: 27.0, // m/s (~97 km/h)
+        idleRpm: 3400,
+        maxRpm: 26000,
+        supportsNormalView: false, // Avata only flies FPV!
+        supportsFpvView: true,
+        defaultView: 'fpv',
+        soundBaseFreqs: [140, 210, 290, 420]
+      }
+    };
+
+    class DroneAudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.isInitialized = false;
+        this.motorOscs = [];
+        this.motorGains = [];
+        this.noiseNode = null;
+        this.noiseGain = null;
+        this.masterGain = null;
+      }
+
+      setSoundProfile(freqs) {
+        if (!freqs || !this.motorOscs) return;
+        freqs.forEach((f, idx) => {
+          if (this.motorOscs[idx]) {
+            this.motorOscs[idx].baseFreq = f;
+          }
+        });
+      }
+
+      init() {
+        if (this.isInitialized) return;
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+          this.masterGain.connect(this.ctx.destination);
+
+          // 4 motor harmonic oscillators
+          const freqs = [85, 120, 170, 240];
+          freqs.forEach(baseFreq => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(baseFreq, this.ctx.currentTime);
+            gain.gain.setValueAtTime(0, this.ctx.currentTime);
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+            osc.start();
+            this.motorOscs.push({ osc, baseFreq });
+            this.motorGains.push(gain);
+          });
+
+          // Propeller blade wind noise buffer
+          const bufferSize = this.ctx.sampleRate * 2;
+          const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const output = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            output[i] = Math.random() * 2 - 1;
+          }
+
+          const whiteNoise = this.ctx.createBufferSource();
+          whiteNoise.buffer = noiseBuffer;
+          whiteNoise.loop = true;
+
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.setValueAtTime(400, this.ctx.currentTime);
+          filter.Q.setValueAtTime(1.5, this.ctx.currentTime);
+
+          this.noiseGain = this.ctx.createGain();
+          this.noiseGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+          whiteNoise.connect(filter);
+          filter.connect(this.noiseGain);
+          this.noiseGain.connect(this.masterGain);
+          whiteNoise.start();
+
+          this.isInitialized = true;
+        } catch (e) {
+          console.warn('Web Audio API not supported or blocked:', e);
+        }
+      }
+
+      update(rpmRatio, isArmed) {
+        if (!this.isInitialized || !this.ctx) return;
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+
+        const targetGain = isArmed ? (0.04 + rpmRatio * 0.18) : 0;
+        const now = this.ctx.currentTime;
+
+        this.motorGains.forEach(g => {
+          g.gain.setTargetAtTime(targetGain, now, 0.05);
+        });
+
+        this.motorOscs.forEach(m => {
+          // Dynamic pitch shift based on motor RPM
+          const pitch = m.baseFreq * (0.8 + rpmRatio * 2.4);
+          m.osc.frequency.setTargetAtTime(pitch, now, 0.04);
+        });
+
+        if (this.noiseGain) {
+          const windNoise = isArmed ? (0.01 + rpmRatio * 0.09) : 0;
+          this.noiseGain.gain.setTargetAtTime(windNoise, now, 0.06);
+        }
+      }
+
+      playBeep(freq = 1200, duration = 0.1, type = 'sine') {
+        if (!this.isInitialized || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + duration);
+        } catch (e) {}
+      }
+
+      playGateChime() {
+        if (!this.isInitialized || !this.ctx) return;
+        this.playBeep(987, 0.1, 'triangle');
+        setTimeout(() => this.playBeep(1318, 0.18, 'triangle'), 100);
+      }
+    }
+
+    const audioEngine = new DroneAudioEngine();
+    window.addEventListener('click', () => audioEngine.init(), { once: true });
+    window.addEventListener('keydown', () => audioEngine.init(), { once: true });
+
+    /* ==========================================================================
+       HARDWARE INPUT & CONTROLLER ENGINE
+       ========================================================================== */
+    class ControllerEngine {
+      constructor() {
+        this.gamepadConnected = false;
+        this.gamepadName = 'None';
+        this.gamepadIndex = null;
+
+        // Raw normalized axes [-1.0, 1.0]
+        this.raw = { roll: 0, pitch: 0, yaw: 0, throttle: -1.0 };
+        // Processed stick outputs with deadband and expo applied
+        this.inputs = { roll: 0, pitch: 0, yaw: 0, throttle: 0 };
+
+        // Configuration
+        this.deadband = 0.05;
+        this.expo = 0.35;
+        this.invert = {
+          roll: false,
+          pitch: true,     // Default DJI Mode 2: Push stick UP -> Pitch Forward (tilt down)
+          yaw: false,
+          throttle: true    // Push stick UP -> Max Throttle
+        };
+
+        // Preset channel mapping
+        this.preset = 'dji_bridge'; // 'dji_bridge' | 'standard_gamepad' | 'mode1'
+
+        // Keyboard State
+        this.keys = {};
+        this.initKeyboard();
+        this.initGamepadEvents();
+
+        // Live DJI RC WebSocket Bridge (ws://localhost:8765)
+        this.bridgeConnected = false;
+        this.bridgeSource = 'None';
+        this.initBridgeWebSocket();
+      }
+
+      initBridgeWebSocket() {
+        const connectBridge = () => {
+          if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) return;
+          try {
+            this.ws = new WebSocket('ws://localhost:8765');
+            this.ws.onopen = () => {
+              if (window.app) window.app.setBridgeOnline(true);
+              showToast('DJI RC BRIDGE CONNECTED (WS:8765)');
+              audioEngine.playBeep(980, 0.15);
+            };
+            this.ws.onmessage = (event) => {
+              try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'telemetry') {
+                  this.bridgeConnected = data.connected;
+                  if (data.connected) {
+                    this.bridgeSource = data.source || 'DJI RC Live Bridge';
+                    this.raw.roll = this.invert.roll ? -data.roll : data.roll;
+                    this.raw.pitch = this.invert.pitch ? -data.pitch : data.pitch;
+                    this.raw.yaw = this.invert.yaw ? -data.yaw : data.yaw;
+                    this.raw.throttle = this.invert.throttle ? -data.throttle : data.throttle;
+                  }
+                  if (window.app) window.app.updateRcTopStatus(data);
+                }
+                if (data.type === 'status' || data.discovered_devices !== undefined || data.type === 'discovery') {
+                  if (window.app) window.app.updateDiscoveredRemotesUI(data);
+                }
+              } catch (err) {}
+            };
+            this.ws.onclose = () => {
+              this.bridgeConnected = false;
+              if (window.app) window.app.setBridgeOnline(false);
+              setTimeout(connectBridge, 2500);
+            };
+            this.ws.onerror = () => {
+              this.bridgeConnected = false;
+              if (window.app) window.app.setBridgeOnline(false);
+            };
+          } catch (e) {
+            this.bridgeConnected = false;
+            setTimeout(connectBridge, 2500);
+          }
+        };
+        connectBridge();
+      }
+
+      initKeyboard() {
+        window.addEventListener('keydown', (e) => {
+          this.keys[e.code] = true;
+          if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+            e.preventDefault();
+          }
+          if (e.code === 'KeyC' || e.code === 'KeyV') {
+            app.cycleCameraMode();
+          }
+          if (e.code === 'KeyR') {
+            app.resetDronePosition();
+          }
+          if (e.code === 'KeyM') {
+            app.cycleFlightMode();
+          }
+          if (e.code === 'Space') {
+            app.toggleArmState();
+          }
+        });
+
+        window.addEventListener('keyup', (e) => {
+          this.keys[e.code] = false;
+        });
+      }
+
+      initGamepadEvents() {
+        window.addEventListener('gamepadconnected', (e) => {
+          this.gamepadConnected = true;
+          this.gamepadIndex = e.gamepad.index;
+          this.gamepadName = e.gamepad.id || 'DJI / USB Gamepad';
+          showToast('GAMEPAD CONNECTED: ' + this.gamepadName.slice(0, 24));
+          audioEngine.playBeep(880, 0.15);
+        });
+
+        window.addEventListener('gamepaddisconnected', (e) => {
+          if (this.gamepadIndex === e.gamepad.index) {
+            this.gamepadConnected = false;
+            this.gamepadIndex = null;
+            this.gamepadName = 'None';
+            showToast('GAMEPAD DISCONNECTED - USING KEYBOARD');
+          }
+        });
+      }
+
+      applyDeadbandAndExpo(val) {
+        if (Math.abs(val) < this.deadband) return 0;
+        // Rescale beyond deadband
+        const sign = Math.sign(val);
+        const normalVal = (Math.abs(val) - this.deadband) / (1.0 - this.deadband);
+        // Apply polynomial exponential curve: f(x) = (1 - expo)*x + expo*x^3
+        const expoVal = (1.0 - this.expo) * normalVal + this.expo * Math.pow(normalVal, 3);
+        return sign * Math.min(1.0, Math.max(0.0, expoVal));
+      }
+
+      poll() {
+        if (this.bridgeConnected) {
+          // Input is streamed in real-time from DJI RC WebSocket bridge (ws://localhost:8765)
+          this.inputs.roll = this.applyDeadbandAndExpo(this.raw.roll);
+          this.inputs.pitch = this.applyDeadbandAndExpo(this.raw.pitch);
+          this.inputs.yaw = this.applyDeadbandAndExpo(this.raw.yaw);
+          const throtNormalized = (this.raw.throttle + 1.0) * 0.5;
+          this.inputs.throttle = Math.min(1.0, Math.max(0.0, throtNormalized));
+          return;
+        }
+
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let pad = null;
+        for (let i = 0; i < gamepads.length; i++) {
+          if (gamepads[i] && gamepads[i].connected) {
+            pad = gamepads[i];
+            this.gamepadIndex = i;
+            this.gamepadConnected = true;
+            this.gamepadName = pad.id;
+            break;
+          }
+        }
+
+        if (pad && pad.axes && pad.axes.length >= 2) {
+          let rRoll = 0, rPitch = 0, rYaw = 0, rThrot = -1.0;
+
+          if (this.preset === 'dji_bridge') {
+            // Mode 2 Standard Quad Bridge:
+            // Axis 0: Right Stick X (Roll)
+            // Axis 1: Right Stick Y (Pitch)
+            // Axis 2: Left Stick X (Yaw)
+            // Axis 3: Left Stick Y (Throttle)
+            rRoll = pad.axes[0] || 0;
+            rPitch = pad.axes[1] || 0;
+            rYaw = (pad.axes.length > 2) ? (pad.axes[2] || 0) : 0;
+            rThrot = (pad.axes.length > 3) ? (pad.axes[3] || 0) : -1.0;
+          } else if (this.preset === 'standard_gamepad') {
+            // Standard Xbox / PS4 / Generic Controller:
+            // Left Stick: Axes 0 (Yaw), 1 (Throttle)
+            // Right Stick: Axes 2 (Roll), 3 (Pitch)
+            rYaw = pad.axes[0] || 0;
+            rThrot = pad.axes[1] || 0;
+            rRoll = (pad.axes.length > 2) ? (pad.axes[2] || 0) : 0;
+            rPitch = (pad.axes.length > 3) ? (pad.axes[3] || 0) : 0;
+          } else if (this.preset === 'mode1') {
+            // Mode 1: Throttle & Roll on Right, Pitch & Yaw on Left
+            rYaw = pad.axes[0] || 0;
+            rPitch = pad.axes[1] || 0;
+            rRoll = (pad.axes.length > 2) ? (pad.axes[2] || 0) : 0;
+            rThrot = (pad.axes.length > 3) ? (pad.axes[3] || 0) : -1.0;
+          }
+
+          // Inversions
+          this.raw.roll = this.invert.roll ? -rRoll : rRoll;
+          this.raw.pitch = this.invert.pitch ? -rPitch : rPitch;
+          this.raw.yaw = this.invert.yaw ? -rYaw : rYaw;
+          this.raw.throttle = this.invert.throttle ? -rThrot : rThrot;
+
+          // Buttons check (button 0 = arm, button 1 = camera, etc.)
+          if (pad.buttons && pad.buttons.length > 0) {
+            if (pad.buttons[0] && pad.buttons[0].pressed && !this._btn0Prev) {
+              app.toggleArmState();
+            }
+            this._btn0Prev = pad.buttons[0] ? pad.buttons[0].pressed : false;
+
+            if (pad.buttons[3] && pad.buttons[3].pressed && !this._btn3Prev) {
+              app.cycleCameraMode();
+            }
+            this._btn3Prev = pad.buttons[3] ? pad.buttons[3].pressed : false;
+          }
+        } else {
+          // Keyboard fallback simulation
+          this.gamepadConnected = false;
+
+          // Roll (Left/Right Arrows)
+          let kRoll = 0;
+          if (this.keys['ArrowRight']) kRoll += 1.0;
+          if (this.keys['ArrowLeft']) kRoll -= 1.0;
+          this.raw.roll = THREE.MathUtils.lerp(this.raw.roll, kRoll, 0.2);
+
+          // Pitch (Up/Down Arrows) -> Up tilts forward (pitch > 0)
+          let kPitch = 0;
+          if (this.keys['ArrowUp']) kPitch += 1.0;
+          if (this.keys['ArrowDown']) kPitch -= 1.0;
+          this.raw.pitch = THREE.MathUtils.lerp(this.raw.pitch, kPitch, 0.2);
+
+          // Yaw (A/D)
+          let kYaw = 0;
+          if (this.keys['KeyD']) kYaw += 1.0;
+          if (this.keys['KeyA']) kYaw -= 1.0;
+          this.raw.yaw = THREE.MathUtils.lerp(this.raw.yaw, kYaw, 0.2);
+
+          // Throttle (W/S)
+          let targetThrot = this.raw.throttle;
+          if (this.keys['KeyW']) targetThrot += 0.035;
+          if (this.keys['KeyS']) targetThrot -= 0.035;
+          // Clamp throttle between -1.0 (zero thrust) and 1.0 (full thrust)
+          this.raw.throttle = Math.min(1.0, Math.max(-1.0, targetThrot));
+        }
+
+        // Apply deadband and expo curves
+        this.inputs.roll = this.applyDeadbandAndExpo(this.raw.roll);
+        this.inputs.pitch = this.applyDeadbandAndExpo(this.raw.pitch);
+        this.inputs.yaw = this.applyDeadbandAndExpo(this.raw.yaw);
+
+        // Throttle normalized from [-1, 1] to [0, 1]
+        const throtNormalized = (this.raw.throttle + 1.0) * 0.5;
+        this.inputs.throttle = Math.min(1.0, Math.max(0.0, throtNormalized));
+      }
+    }
+
+    /* ==========================================================================
+       FLIGHT DYNAMICS & MULTIROTOR PHYSICS ENGINE
+       ========================================================================== */
+    class DronePhysics {
+      constructor() {
+        this.position = new THREE.Vector3(0, 0.25, 0); // Start on launchpad
+        this.velocity = new THREE.Vector3(0, 0, 0);
+        this.quaternion = new THREE.Quaternion();
+        this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
+        this.angularVelocity = new THREE.Vector3(0, 0, 0);
+
+        this.gravity = -9.81; // m/s^2
+        this.setDroneProfile('mini');
+
+        // Flight States
+        this.isArmed = false;
+        this.flightMode = 'normal'; // 'normal' | 'sport' | 'cine' | 'acro'
+        this.motorRpm = 0;
+        this.targetRpm = 0;
+        this.isGrounded = true;
+
+        // Propeller rotation angles for visual animation
+        this.propAngles = [0, 0, 0, 0];
+      }
+
+      setDroneProfile(profileId) {
+        const p = DRONE_PROFILES[profileId] || DRONE_PROFILES.mini;
+        this.profile = p;
+        this.mass = p.mass;
+        this.maxThrust = p.maxThrust;
+        this.hoverThrust = Math.abs(this.gravity) * this.mass;
+        this.linearDragCoeff = p.linearDragCoeff;
+        this.linearDragQuadCoeff = p.linearDragQuadCoeff;
+        this.angularDamping = p.angularDamping;
+        this.idleRpm = p.idleRpm;
+        this.maxRpm = p.maxRpm;
+        if (this.isArmed) {
+          this.targetRpm = this.idleRpm;
+        }
+        if (typeof audioEngine !== 'undefined' && audioEngine.setSoundProfile) {
+          audioEngine.setSoundProfile(p.soundBaseFreqs);
+        }
+      }
+
+      setFlightMode(mode) {
+        this.flightMode = mode;
+      }
+
+      arm() {
+        this.isArmed = true;
+        this.targetRpm = this.profile ? this.profile.idleRpm : 2200;
+        audioEngine.playBeep(440, 0.1);
+        setTimeout(() => audioEngine.playBeep(880, 0.2), 120);
+      }
+
+      disarm() {
+        this.isArmed = false;
+        this.targetRpm = 0;
+        audioEngine.playBeep(330, 0.25);
+      }
+
+      reset(spawnPos = new THREE.Vector3(0, 0.25, 0)) {
+        this.position.copy(spawnPos);
+        this.velocity.set(0, 0, 0);
+        this.quaternion.set(0, 0, 0, 1);
+        this.euler.set(0, 0, 0);
+        this.angularVelocity.set(0, 0, 0);
+        this.motorRpm = 0;
+        this.targetRpm = 0;
+        this.isArmed = false;
+        this.isGrounded = true;
+      }
+
+      update(dt, inputs) {
+        const p = this.profile || DRONE_PROFILES.mini;
+
+        // Motor RPM dynamics
+        if (this.isArmed) {
+          this.targetRpm = p.idleRpm + inputs.throttle * (p.maxRpm - p.idleRpm);
+        } else {
+          this.targetRpm = 0;
+        }
+        this.motorRpm = THREE.MathUtils.lerp(this.motorRpm, this.targetRpm, Math.min(1.0, dt * 14));
+
+        // Propeller spin visuals (CW / CCW counter-rotation)
+        const propSpeed = (this.motorRpm / 60) * Math.PI * 2 * dt;
+        this.propAngles[0] += propSpeed;
+        this.propAngles[1] -= propSpeed;
+        this.propAngles[2] -= propSpeed;
+        this.propAngles[3] += propSpeed;
+
+        // If disarmed and on the ground, hold static
+        if (!this.isArmed && this.isGrounded) {
+          this.velocity.set(0, 0, 0);
+          this.angularVelocity.set(0, 0, 0);
+          return;
+        }
+
+        // ==========================================
+        // ATTITUDE & ROTATION DYNAMICS
+        // ==========================================
+        let maxTiltAngle = THREE.MathUtils.degToRad(p.maxTiltNormal);
+        let angularResponseRate = p.angularRateNormal;
+        let yawRate = p.yawRate;
+
+        if (this.flightMode === 'sport') {
+          maxTiltAngle = THREE.MathUtils.degToRad(p.maxTiltSport);
+          angularResponseRate = p.angularRateSport;
+          yawRate = p.yawRate * 1.5;
+        } else if (this.flightMode === 'cine') {
+          maxTiltAngle = THREE.MathUtils.degToRad(Math.min(18, p.maxTiltNormal * 0.5));
+          angularResponseRate = p.angularRateNormal * 0.6;
+          yawRate = p.yawRate * 0.6;
+        }
+
+        if (this.flightMode === 'acro') {
+          // ACRO / RATE MODE: direct angular velocity control
+          const rateRoll = -inputs.roll * 6.0;
+          const ratePitch = -inputs.pitch * 6.0;
+          const rateYaw = -inputs.yaw * yawRate;
+
+          this.angularVelocity.x = THREE.MathUtils.lerp(this.angularVelocity.x, ratePitch, dt * 8);
+          this.angularVelocity.z = THREE.MathUtils.lerp(this.angularVelocity.z, rateRoll, dt * 8);
+          this.angularVelocity.y = THREE.MathUtils.lerp(this.angularVelocity.y, rateYaw, dt * 8);
+
+          // Integrate quaternion with angular velocity
+          const qDelta = new THREE.Quaternion(
+            this.angularVelocity.x * dt * 0.5,
+            this.angularVelocity.y * dt * 0.5,
+            this.angularVelocity.z * dt * 0.5,
+            1.0
+          );
+          this.quaternion.multiply(qDelta).normalize();
+          this.euler.setFromQuaternion(this.quaternion, 'YXZ');
+        } else {
+          // ANGLE / AUTO-LEVEL MODE (DJI Standard)
+          // Desired roll and pitch from right stick
+          const targetRoll = -inputs.roll * maxTiltAngle;
+          const targetPitch = -inputs.pitch * maxTiltAngle;
+
+          // Integrate Yaw rotation around world Up axis
+          this.euler.y -= inputs.yaw * yawRate * dt;
+
+          // Smoothly auto-level roll & pitch towards targets
+          this.euler.z = THREE.MathUtils.lerp(this.euler.z, targetRoll, dt * angularResponseRate);
+          this.euler.x = THREE.MathUtils.lerp(this.euler.x, targetPitch, dt * angularResponseRate);
+
+          this.quaternion.setFromEuler(this.euler);
+        }
+
+        // ==========================================
+        // LINEAR FORCES & PROPULSION
+        // ==========================================
+        // Calculate collective thrust vector
+        let thrustMagnitude = 0;
+        if (this.isArmed) {
+          thrustMagnitude = inputs.throttle * this.maxThrust;
+
+          // Altitude hold assistance in Normal / Cine mode near center throttle
+          if ((this.flightMode === 'normal' || this.flightMode === 'cine') && Math.abs(inputs.throttle - 0.5) < 0.12) {
+            // Apply gentle vertical dampening towards hover
+            const vsiDamp = -this.velocity.y * 1.8 * this.mass;
+            thrustMagnitude = THREE.MathUtils.lerp(thrustMagnitude, this.hoverThrust + vsiDamp, 0.4);
+          }
+        }
+
+        // Thrust always acts along the drone's local UP (+Y) vector
+        const localUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion);
+        const thrustForce = localUp.clone().multiplyScalar(thrustMagnitude);
+
+        // Ground effect (prop wash extra lift within 1.2m of ground)
+        if (this.position.y < 1.4 && this.position.y > 0.2) {
+          const groundEffect = (1.4 - this.position.y) * 2.2 * (this.motorRpm / 10000);
+          thrustForce.y += groundEffect;
+        }
+
+        // Gravity force
+        const gravityForce = new THREE.Vector3(0, this.gravity * this.mass, 0);
+
+        // Aerodynamic drag force: F_drag = - (c1*v + c2*v*|v|)
+        const speed = this.velocity.length();
+        const dragMagnitude = this.linearDragCoeff * speed + this.linearDragQuadCoeff * speed * speed;
+        const dragForce = this.velocity.clone().normalize().multiplyScalar(-dragMagnitude);
+
+        // Total force & acceleration: a = F / m
+        const totalForce = new THREE.Vector3().add(thrustForce).add(gravityForce).add(dragForce);
+        const acceleration = totalForce.divideScalar(this.mass);
+
+        // Integrate linear velocity and position
+        this.velocity.addScaledVector(acceleration, dt);
+        this.position.addScaledVector(this.velocity, dt);
+
+        // ==========================================
+        // GROUND COLLISION & SURFACE CONTACT
+        // ==========================================
+        const groundHeight = 0.22; // Height of landing gear off ground plane
+        if (this.position.y <= groundHeight) {
+          this.position.y = groundHeight;
+          this.isGrounded = true;
+
+          // If hard impact, disarm and bounce slightly
+          if (this.velocity.y < -3.8) {
+            audioEngine.playBeep(180, 0.25, 'sawtooth');
+            showToast('HARD IMPACT - MOTORS CUT');
+            this.disarm();
+          }
+
+          this.velocity.y = Math.max(0, -this.velocity.y * 0.15); // Low restitution bounce
+          // Surface friction on landing skids
+          this.velocity.x *= 0.75;
+          this.velocity.z *= 0.75;
+
+          // Level drone slightly when resting on ground
+          if (this.flightMode !== 'acro') {
+            this.euler.x *= 0.85;
+            this.euler.z *= 0.85;
+            this.quaternion.setFromEuler(this.euler);
+          }
+        } else {
+          this.isGrounded = false;
+        }
+
+        // Bounding world fence limits
+        const fenceBound = 400;
+        if (Math.abs(this.position.x) > fenceBound) this.velocity.x *= -0.5;
+        if (Math.abs(this.position.z) > fenceBound) this.velocity.z *= -0.5;
+        if (this.position.y > 180) this.velocity.y = Math.min(0, this.velocity.y);
+      }
+    }
+
+    /* ==========================================================================
+       THREE.JS 3D SCENE & ENVIRONMENT ENGINE
+       ========================================================================== */
+    class SimulatorScene {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.renderer = new THREE.WebGLRenderer({
+          canvas: this.canvas,
+          antialias: true,
+          powerPreference: 'high-performance'
+        });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.15;
+
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x0c1626);
+        this.scene.fog = new THREE.FogExp2(0x0c1626, 0.0035);
+
+        // Cameras
+        this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.cameraMode = 'chase'; // 'chase' | 'fpv' | 'orbit' | 'ground'
+        this.chaseCamPos = new THREE.Vector3(0, 1.5, -4.5);
+        this.chaseCamLook = new THREE.Vector3(0, 0.5, 0);
+
+        // Gate targets
+        this.gates = [];
+        this.clearedGates = new Set();
+
+        this.initLighting();
+        this.createEnvironment();
+        this.buildDroneModel('mini');
+        this.createFlightParkGates();
+
+        window.addEventListener('resize', () => this.onWindowResize());
+      }
+
+      onWindowResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      initLighting() {
+        const ambientLight = new THREE.AmbientLight(0xd9e6f2, 0.65);
+        this.scene.add(ambientLight);
+
+        // Directional Sun Light with shadows
+        const sunLight = new THREE.DirectionalLight(0xfff5e6, 1.4);
+        sunLight.position.set(70, 120, 60);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 10;
+        sunLight.shadow.camera.far = 300;
+        const d = 90;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        sunLight.shadow.bias = -0.0004;
+        this.scene.add(sunLight);
+
+        // Subtle ground reflection hemisphere light
+        const hemiLight = new THREE.HemisphereLight(0x38bdf8, 0x1e293b, 0.4);
+        this.scene.add(hemiLight);
+      }
+
+      createEnvironment() {
+        // Procedural Ground Plane with runway and airfield
+        const groundGeo = new THREE.PlaneGeometry(800, 800, 32, 32);
+        
+        // Procedural Canvas Texture for Terrain Grid
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#172338';
+        ctx.fillRect(0, 0, 512, 512);
+        // Grid lines
+        ctx.strokeStyle = '#223554';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i <= 512; i += 32) {
+          ctx.moveTo(i, 0); ctx.lineTo(i, 512);
+          ctx.moveTo(0, i); ctx.lineTo(512, i);
+        }
+        ctx.stroke();
+
+        const groundTex = new THREE.CanvasTexture(canvas);
+        groundTex.wrapS = THREE.RepeatWrapping;
+        groundTex.wrapT = THREE.RepeatWrapping;
+        groundTex.repeat.set(50, 50);
+
+        const groundMat = new THREE.MeshStandardMaterial({
+          map: groundTex,
+          roughness: 0.85,
+          metalness: 0.1
+        });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        this.scene.add(ground);
+
+        // Asphalt Runway Strip
+        const runwayGeo = new THREE.PlaneGeometry(24, 280);
+        const runwayMat = new THREE.MeshStandardMaterial({
+          color: 0x111622,
+          roughness: 0.7,
+          metalness: 0.2
+        });
+        const runway = new THREE.Mesh(runwayGeo, runwayMat);
+        runway.rotation.x = -Math.PI / 2;
+        runway.position.set(0, 0.01, 40);
+        runway.receiveShadow = true;
+        this.scene.add(runway);
+
+        // Runway Yellow Edge Lines
+        const lineGeo = new THREE.PlaneGeometry(0.4, 280);
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+        const lineLeft = new THREE.Mesh(lineGeo, lineMat);
+        lineLeft.rotation.x = -Math.PI / 2;
+        lineLeft.position.set(-11.5, 0.02, 40);
+        this.scene.add(lineLeft);
+
+        const lineRight = new THREE.Mesh(lineGeo, lineMat);
+        lineRight.rotation.x = -Math.PI / 2;
+        lineRight.position.set(11.5, 0.02, 40);
+        this.scene.add(lineRight);
+
+        // DJI Launchpad (Origin 0,0,0)
+        this.createLaunchPad();
+
+        // Surrounding scenery objects: Hangar, observation tower, trees, containers
+        this.createHangar(new THREE.Vector3(-45, 0, -25));
+        this.createControlTower(new THREE.Vector3(38, 0, -30));
+        this.createShippingContainers();
+        this.createSceneryTrees();
+      }
+
+      createLaunchPad() {
+        const padGroup = new THREE.Group();
+        padGroup.position.set(0, 0.02, 0);
+
+        // Circular landing base
+        const padGeo = new THREE.CircleGeometry(4.5, 48);
+        const padCanvas = document.createElement('canvas');
+        padCanvas.width = 512;
+        padCanvas.height = 512;
+        const pctx = padCanvas.getContext('2d');
+
+        // Pad background
+        pctx.fillStyle = '#0a101b';
+        pctx.beginPath();
+        pctx.arc(256, 256, 250, 0, Math.PI * 2);
+        pctx.fill();
+
+        // Outer cyan ring
+        pctx.strokeStyle = '#00e5ff';
+        pctx.lineWidth = 14;
+        pctx.stroke();
+
+        // Inner dashed ring
+        pctx.strokeStyle = '#f59e0b';
+        pctx.lineWidth = 6;
+        pctx.setLineDash([20, 16]);
+        pctx.beginPath();
+        pctx.arc(256, 256, 180, 0, Math.PI * 2);
+        pctx.stroke();
+        pctx.setLineDash([]);
+
+        // Big 'H' letter
+        pctx.fillStyle = '#ffffff';
+        pctx.font = 'bold 190px Orbitron, sans-serif';
+        pctx.textAlign = 'center';
+        pctx.textBaseline = 'middle';
+        pctx.fillText('H', 256, 256);
+
+        // DJI Brand Subtext
+        pctx.fillStyle = '#00e5ff';
+        pctx.font = 'bold 28px Rajdhani, sans-serif';
+        pctx.fillText('DJI AEROSIM HOME', 256, 380);
+
+        const padTex = new THREE.CanvasTexture(padCanvas);
+        const padMat = new THREE.MeshStandardMaterial({
+          map: padTex,
+          roughness: 0.6,
+          metalness: 0.3
+        });
+        const padMesh = new THREE.Mesh(padGeo, padMat);
+        padMesh.rotation.x = -Math.PI / 2;
+        padMesh.receiveShadow = true;
+        padGroup.add(padMesh);
+
+        // 4 Corner launchpad LED beacons
+        const beaconPositions = [
+          [-4, -4], [4, -4], [-4, 4], [4, 4]
+        ];
+        beaconPositions.forEach(bp => {
+          const bGeo = new THREE.CylinderGeometry(0.2, 0.25, 0.3, 16);
+          const bMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8 });
+          const beacon = new THREE.Mesh(bGeo, bMat);
+          beacon.position.set(bp[0], 0.15, bp[1]);
+          padGroup.add(beacon);
+
+          const lightGeo = new THREE.SphereGeometry(0.12, 16, 16);
+          const lightMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+          const lightMesh = new THREE.Mesh(lightGeo, lightMat);
+          lightMesh.position.set(bp[0], 0.32, bp[1]);
+          padGroup.add(lightMesh);
+        });
+
+        this.scene.add(padGroup);
+      }
+
+      createHangar(pos) {
+        const hangar = new THREE.Group();
+        hangar.position.copy(pos);
+
+        // Main hangar arched structure
+        const bodyGeo = new THREE.CylinderGeometry(14, 14, 38, 24, 1, false, 0, Math.PI);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          color: 0x223247,
+          roughness: 0.5,
+          metalness: 0.4
+        });
+        const roof = new THREE.Mesh(bodyGeo, bodyMat);
+        roof.rotation.z = Math.PI / 2;
+        roof.rotation.y = Math.PI / 2;
+        roof.position.y = 0;
+        roof.castShadow = true;
+        roof.receiveShadow = true;
+        hangar.add(roof);
+
+        // Back wall
+        const wallGeo = new THREE.CircleGeometry(14, 24, 0, Math.PI);
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x182436, roughness: 0.7 });
+        const backWall = new THREE.Mesh(wallGeo, wallMat);
+        backWall.position.set(0, 0, -19);
+        backWall.castShadow = true;
+        hangar.add(backWall);
+
+        this.scene.add(hangar);
+      }
+
+      createControlTower(pos) {
+        const tower = new THREE.Group();
+        tower.position.copy(pos);
+
+        // Tower Column
+        const colGeo = new THREE.BoxGeometry(6, 26, 6);
+        const colMat = new THREE.MeshStandardMaterial({ color: 0x1f293d, roughness: 0.6 });
+        const column = new THREE.Mesh(colGeo, colMat);
+        column.position.y = 13;
+        column.castShadow = true;
+        column.receiveShadow = true;
+        tower.add(column);
+
+        // Glass Observation Cabin
+        const cabinGeo = new THREE.CylinderGeometry(5.5, 4.5, 5, 12);
+        const cabinMat = new THREE.MeshStandardMaterial({
+          color: 0x00e5ff,
+          roughness: 0.1,
+          metalness: 0.8,
+          transparent: true,
+          opacity: 0.65
+        });
+        const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+        cabin.position.y = 28.5;
+        tower.add(cabin);
+
+        // Radar Dish Antenna
+        const dishGeo = new THREE.SphereGeometry(2, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.4);
+        const dishMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+        const dish = new THREE.Mesh(dishGeo, dishMat);
+        dish.position.set(0, 32.5, 0);
+        dish.rotation.x = -Math.PI / 3;
+        tower.add(dish);
+
+        this.scene.add(tower);
+      }
+
+      createShippingContainers() {
+        const colors = [0xd97706, 0x2563eb, 0xdc2626, 0x059669];
+        for (let i = 0; i < 8; i++) {
+          const cGeo = new THREE.BoxGeometry(4.5, 4.2, 11);
+          const cMat = new THREE.MeshStandardMaterial({
+            color: colors[i % colors.length],
+            roughness: 0.65,
+            metalness: 0.3
+          });
+          const container = new THREE.Mesh(cGeo, cMat);
+          const x = 32 + (i % 2) * 5.2;
+          const z = 10 + Math.floor(i / 2) * 12.5;
+          container.position.set(x, 2.1, z);
+          container.castShadow = true;
+          container.receiveShadow = true;
+          this.scene.add(container);
+        }
+      }
+
+      createSceneryTrees() {
+        // Procedural low-poly pine trees along perimeter
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3525, roughness: 0.9 });
+        const leavesMat = new THREE.MeshStandardMaterial({ color: 0x164e32, roughness: 0.8 });
+
+        for (let i = 0; i < 28; i++) {
+          const tree = new THREE.Group();
+          const angle = (i / 28) * Math.PI * 2;
+          const dist = 95 + Math.random() * 45;
+          const x = Math.cos(angle) * dist;
+          const z = Math.sin(angle) * dist;
+
+          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 3, 8), trunkMat);
+          trunk.position.y = 1.5;
+          trunk.castShadow = true;
+          tree.add(trunk);
+
+          const leaves1 = new THREE.Mesh(new THREE.ConeGeometry(3.5, 6, 8), leavesMat);
+          leaves1.position.y = 5.5;
+          leaves1.castShadow = true;
+          tree.add(leaves1);
+
+          const leaves2 = new THREE.Mesh(new THREE.ConeGeometry(2.5, 5, 8), leavesMat);
+          leaves2.position.y = 8.5;
+          leaves2.castShadow = true;
+          tree.add(leaves2);
+
+          tree.position.set(x, 0, z);
+          this.scene.add(tree);
+        }
+      }
+
+      /* 3D DRONE MODEL GENERATOR (DJI MINI 4 PRO & DJI AVATA 2) */
+      buildDroneModel(droneId = 'mini') {
+        this.currentDrone = droneId;
+        if (this.droneGroup) {
+          this.scene.remove(this.droneGroup);
+        }
+        this.droneGroup = new THREE.Group();
+        this.propellerMeshes = [];
+
+        if (droneId === 'avata') {
+          // ==========================================
+          // 3D MODEL: DJI AVATA 2 (FPV CINEWHOOP)
+          // ==========================================
+          // 1. Compact Carbon Fuselage Core
+          const bodyGeo = new THREE.BoxGeometry(0.48, 0.20, 0.72);
+          const bodyMat = new THREE.MeshStandardMaterial({ color: 0x111620, metalness: 0.9, roughness: 0.25 });
+          const fuselage = new THREE.Mesh(bodyGeo, bodyMat);
+          fuselage.castShadow = true;
+          this.droneGroup.add(fuselage);
+
+          // Top Battery Pack with Roll-Cage Straps
+          const battGeo = new THREE.BoxGeometry(0.32, 0.16, 0.44);
+          const battMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.6, roughness: 0.5 });
+          const batt = new THREE.Mesh(battGeo, battMat);
+          batt.position.set(0, 0.15, -0.05);
+          this.droneGroup.add(batt);
+
+          // Orange Avata Livery Accent
+          const stripGeo = new THREE.BoxGeometry(0.33, 0.04, 0.08);
+          const stripMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 });
+          const strip = new THREE.Mesh(stripGeo, stripMat);
+          strip.position.set(0, 0.22, 0);
+          this.droneGroup.add(strip);
+
+          // 2. Uptilted High-Angle FPV Camera Pod (20 deg upward tilt for racing)
+          const fpvPodGroup = new THREE.Group();
+          fpvPodGroup.position.set(0, 0.08, 0.38);
+          fpvPodGroup.rotation.x = -THREE.MathUtils.degToRad(20);
+
+          const camHousing = new THREE.Mesh(
+            new THREE.BoxGeometry(0.18, 0.18, 0.22),
+            new THREE.MeshStandardMaterial({ color: 0x0a0f18, metalness: 0.95 })
+          );
+          fpvPodGroup.add(camHousing);
+
+          const fpvLens = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.08, 0.08, 0.12, 16),
+            new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.1, metalness: 0.9 })
+          );
+          fpvLens.rotation.x = Math.PI / 2;
+          fpvLens.position.set(0, 0, 0.11);
+          fpvPodGroup.add(fpvLens);
+
+          this.droneGroup.add(fpvPodGroup);
+          this.cameraGimbal = fpvPodGroup;
+
+          // 3. 4 Integrated Ducted Propeller Guards (Cinewhoop Torus Rings)
+          const ductPositions = [
+            { x: 0.46, z: 0.36 },  // Front Right
+            { x: -0.46, z: 0.36 }, // Front Left
+            { x: -0.46, z: -0.36 },// Rear Left
+            { x: 0.46, z: -0.36 }  // Rear Right
+          ];
+
+          ductPositions.forEach((dp) => {
+            // Ducted ring
+            const ductGeo = new THREE.TorusGeometry(0.38, 0.045, 16, 32);
+            const ductMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.7 });
+            const duct = new THREE.Mesh(ductGeo, ductMat);
+            duct.rotation.x = Math.PI / 2;
+            duct.position.set(dp.x, 0.02, dp.z);
+            duct.castShadow = true;
+            this.droneGroup.add(duct);
+
+            // High-power FPV brushless motor
+            const motorGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.12, 16);
+            const motorMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.95 });
+            const motor = new THREE.Mesh(motorGeo, motorMat);
+            motor.position.set(dp.x, 0.02, dp.z);
+            this.droneGroup.add(motor);
+
+            // Support struts from fuselage to duct
+            const strutGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.45, 8);
+            const strut = new THREE.Mesh(strutGeo, ductMat);
+            strut.position.set(dp.x * 0.5, 0.02, dp.z * 0.5);
+            strut.rotation.z = Math.PI / 2;
+            strut.rotation.y = Math.atan2(dp.z, dp.x);
+            this.droneGroup.add(strut);
+
+            // 3-Blade FPV Racing Propellers
+            const propGroup = new THREE.Group();
+            propGroup.position.set(dp.x, 0.09, dp.z);
+
+            const bladeMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.3, metalness: 0.4, transparent: true, opacity: 0.9 });
+            for (let b = 0; b < 3; b++) {
+              const blade = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.012, 0.06), bladeMat);
+              blade.position.x = 0.14;
+              const bladeWrapper = new THREE.Group();
+              bladeWrapper.rotation.y = (b * Math.PI * 2) / 3;
+              bladeWrapper.add(blade);
+              propGroup.add(bladeWrapper);
+            }
+
+            const cap = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.05, 12), new THREE.MeshStandardMaterial({ color: 0x000000 }));
+            cap.position.y = 0.025;
+            propGroup.add(cap);
+
+            this.droneGroup.add(propGroup);
+            this.propellerMeshes.push(propGroup);
+          });
+
+          // Soft rubber landing pads under ducts
+          ductPositions.forEach(dp => {
+            const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.06, 12), new THREE.MeshStandardMaterial({ color: 0x050505 }));
+            pad.position.set(dp.x, -0.06, dp.z);
+            this.droneGroup.add(pad);
+          });
+
+        } else {
+          // ==========================================
+          // 3D MODEL: DJI MINI 4 PRO (ULTRALIGHT FOLDING)
+          // ==========================================
+          const bodyGeo = new THREE.BoxGeometry(0.58, 0.19, 0.98);
+          const bodyMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.5, roughness: 0.4 });
+          const fuselage = new THREE.Mesh(bodyGeo, bodyMat);
+          fuselage.castShadow = true;
+          this.droneGroup.add(fuselage);
+
+          // Top Hood
+          const hoodGeo = new THREE.CylinderGeometry(0.24, 0.28, 0.8, 16);
+          const hoodMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.7, roughness: 0.3 });
+          const hood = new THREE.Mesh(hoodGeo, hoodMat);
+          hood.rotation.x = Math.PI / 2;
+          hood.position.set(0, 0.10, 0);
+          this.droneGroup.add(hood);
+
+          // Front Obstacle Sensing Dual Cameras (Binocular eyes)
+          [-0.14, 0.14].forEach(sx => {
+            const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00e5ff }));
+            sensor.position.set(sx, 0.04, 0.48);
+            this.droneGroup.add(sensor);
+          });
+
+          // Gimbal 4K Camera Assembly
+          const gimbalGroup = new THREE.Group();
+          gimbalGroup.position.set(0, -0.06, 0.52);
+
+          const gimbalBase = new THREE.Mesh(new THREE.SphereGeometry(0.10, 16, 16), new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.9 }));
+          gimbalGroup.add(gimbalBase);
+
+          const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.09, 16), new THREE.MeshBasicMaterial({ color: 0x00e5ff }));
+          lens.rotation.x = Math.PI / 2;
+          lens.position.set(0, 0, 0.07);
+          gimbalGroup.add(lens);
+
+          this.droneGroup.add(gimbalGroup);
+          this.cameraGimbal = gimbalGroup;
+
+          // 4 Folding Carbon Composite Rotor Arms
+          const armPositions = [
+            { x: 0.62, z: 0.60, angle: Math.PI / 4, isFront: true },
+            { x: -0.62, z: 0.60, angle: -Math.PI / 4, isFront: true },
+            { x: -0.70, z: -0.60, angle: -3 * Math.PI / 4, isFront: false },
+            { x: 0.70, z: -0.60, angle: 3 * Math.PI / 4, isFront: false }
+          ];
+
+          armPositions.forEach(armCfg => {
+            const arm = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.038, 0.038, 0.90, 12),
+              new THREE.MeshStandardMaterial({ color: 0x374151, metalness: 0.8, roughness: 0.3 })
+            );
+            arm.rotation.z = Math.PI / 2;
+            arm.rotation.y = armCfg.angle;
+            arm.position.set(armCfg.x * 0.5, 0, armCfg.z * 0.5);
+            arm.castShadow = true;
+            this.droneGroup.add(arm);
+
+            const motor = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.08, 0.08, 0.11, 16),
+              new THREE.MeshStandardMaterial({ color: 0x4b5563, metalness: 0.9 })
+            );
+            motor.position.set(armCfg.x, 0.03, armCfg.z);
+            motor.castShadow = true;
+            this.droneGroup.add(motor);
+
+            // LEDs
+            const led = new THREE.Mesh(
+              new THREE.SphereGeometry(0.04, 12, 12),
+              new THREE.MeshBasicMaterial({ color: armCfg.isFront ? 0xef4444 : 0x10b981 })
+            );
+            led.position.set(armCfg.x, -0.05, armCfg.z);
+            this.droneGroup.add(led);
+
+            // 2-Blade Slim Folding Propellers
+            const propGroup = new THREE.Group();
+            propGroup.position.set(armCfg.x, 0.09, armCfg.z);
+
+            const blade = new THREE.Mesh(
+              new THREE.BoxGeometry(0.66, 0.012, 0.065),
+              new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.4, transparent: true, opacity: 0.9 })
+            );
+            blade.castShadow = true;
+            propGroup.add(blade);
+
+            const cap = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.05, 12), new THREE.MeshStandardMaterial({ color: 0x111827 }));
+            cap.position.y = 0.03;
+            propGroup.add(cap);
+
+            this.droneGroup.add(propGroup);
+            this.propellerMeshes.push(propGroup);
+          });
+
+          // Landing Gear Skids
+          [-0.28, 0.28].forEach(lx => {
+            const skid = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.85, 8), new THREE.MeshStandardMaterial({ color: 0x4b5563 }));
+            skid.rotation.x = Math.PI / 2;
+            skid.position.set(lx, -0.18, 0);
+            this.droneGroup.add(skid);
+
+            const strutF = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.20, 8), new THREE.MeshStandardMaterial({ color: 0x4b5563 }));
+            strutF.position.set(lx, -0.09, 0.26);
+            this.droneGroup.add(strutF);
+
+            const strutR = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.20, 8), new THREE.MeshStandardMaterial({ color: 0x4b5563 }));
+            strutR.position.set(lx, -0.09, -0.26);
+            this.droneGroup.add(strutR);
+          });
+        }
+
+        this.scene.add(this.droneGroup);
+      }
+
+      /* NEON FPV SLALOM GATES COURSE */
+      createFlightParkGates() {
+        const gateConfigs = [
+          { pos: new THREE.Vector3(0, 4.5, 30), rotY: 0, color: 0x00e5ff },
+          { pos: new THREE.Vector3(25, 8.0, 75), rotY: Math.PI / 6, color: 0x10b981 },
+          { pos: new THREE.Vector3(45, 12.0, 140), rotY: Math.PI / 3, color: 0xf59e0b },
+          { pos: new THREE.Vector3(0, 9.0, 190), rotY: Math.PI, color: 0xef4444 },
+          { pos: new THREE.Vector3(-35, 6.0, 100), rotY: -Math.PI / 3, color: 0x00e5ff }
+        ];
+
+        gateConfigs.forEach((cfg, index) => {
+          const gateGroup = new THREE.Group();
+          gateGroup.position.copy(cfg.pos);
+          gateGroup.rotation.y = cfg.rotY;
+
+          // Glowing circular ring
+          const ringGeo = new THREE.TorusGeometry(3.6, 0.22, 16, 32);
+          const ringMat = new THREE.MeshStandardMaterial({
+            color: cfg.color,
+            emissive: cfg.color,
+            emissiveIntensity: 0.8,
+            roughness: 0.2
+          });
+          const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+          gateGroup.add(ringMesh);
+
+          // Support Pylons to Ground
+          const pylonGeo = new THREE.CylinderGeometry(0.25, 0.35, cfg.pos.y, 12);
+          const pylonMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8 });
+          
+          const pylonL = new THREE.Mesh(pylonGeo, pylonMat);
+          pylonL.position.set(-3.6, -cfg.pos.y / 2, 0);
+          pylonL.castShadow = true;
+          gateGroup.add(pylonL);
+
+          const pylonR = new THREE.Mesh(pylonGeo, pylonMat);
+          pylonR.position.set(3.6, -cfg.pos.y / 2, 0);
+          pylonR.castShadow = true;
+          gateGroup.add(pylonR);
+
+          this.scene.add(gateGroup);
+
+          this.gates.push({
+            id: index + 1,
+            position: cfg.pos,
+            group: gateGroup,
+            radius: 3.6,
+            ringMesh: ringMesh,
+            cleared: false
+          });
+        });
+      }
+
+      checkGateCollisions(dronePos) {
+        this.gates.forEach(gate => {
+          if (!gate.cleared) {
+            const dist = dronePos.distanceTo(gate.position);
+            if (dist < gate.radius) {
+              gate.cleared = true;
+              this.clearedGates.add(gate.id);
+              // Trigger visual pulse
+              gate.ringMesh.material.emissiveIntensity = 2.5;
+              setTimeout(() => {
+                gate.ringMesh.material.color.setHex(0x10b981);
+                gate.ringMesh.material.emissive.setHex(0x10b981);
+                gate.ringMesh.material.emissiveIntensity = 1.0;
+              }, 400);
+
+              // Audio and UI trigger
+              audioEngine.playGateChime();
+              showGatePopup(`GATE ${gate.id} CLEARED!`);
+              document.getElementById('val-score').textContent = this.clearedGates.size;
+            }
+          }
+        });
+      }
+
+      setCameraMode(mode) {
+        this.cameraMode = mode;
+        if (mode === 'fpv') {
+          this.camera.fov = this.currentDrone === 'avata' ? 100 : 85;
+        } else {
+          this.camera.fov = 65;
+        }
+        this.camera.updateProjectionMatrix();
+      }
+
+      update(physics, dt) {
+        // Sync 3D model with physics state
+        this.droneGroup.position.copy(physics.position);
+        this.droneGroup.quaternion.copy(physics.quaternion);
+
+        // Update propeller animations
+        for (let i = 0; i < 4; i++) {
+          if (this.propellerMeshes[i]) {
+            this.propellerMeshes[i].rotation.y = physics.propAngles[i];
+          }
+        }
+
+        // Camera Management
+        if (this.cameraMode === 'chase') {
+          // Smooth third-person chase camera with dynamic follow
+          const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(physics.quaternion);
+          const up = new THREE.Vector3(0, 1, 0);
+
+          // Chase target position behind and slightly above drone
+          const targetCamPos = physics.position.clone()
+            .sub(forward.clone().multiplyScalar(4.0))
+            .add(up.clone().multiplyScalar(1.4));
+
+          this.camera.position.lerp(targetCamPos, Math.min(1.0, dt * 8));
+          
+          // Look slightly ahead of drone
+          const targetLook = physics.position.clone().add(forward.clone().multiplyScalar(2.0));
+          this.camera.up.set(0, 1, 0);
+          this.camera.lookAt(targetLook);
+        } else if (this.cameraMode === 'fpv') {
+          // FPV Cockpit Camera with full attitude banking & forward uptilt angle
+          const camOffset = this.currentDrone === 'avata'
+            ? new THREE.Vector3(0, 0.12, 0.38)
+            : new THREE.Vector3(0, 0.05, 0.48);
+          const gimbalWorldPos = camOffset.clone().applyQuaternion(physics.quaternion).add(physics.position);
+          this.camera.position.copy(gimbalWorldPos);
+
+          const uptiltDeg = this.currentDrone === 'avata' ? 20 : 6;
+          const tiltQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -THREE.MathUtils.degToRad(uptiltDeg));
+          const camQuat = physics.quaternion.clone().multiply(tiltQuat);
+          this.camera.quaternion.copy(camQuat);
+        } else if (this.cameraMode === 'ground') {
+          // Ground Station Observer Cam (Launchpad side)
+          this.camera.position.set(0, 1.8, -8);
+          this.camera.up.set(0, 1, 0);
+          this.camera.lookAt(physics.position);
+        }
+
+        // Check race gates
+        this.checkGateCollisions(physics.position);
+
+        // Render frame
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    /* ==========================================================================
+       ARTIFICIAL HORIZON & RADAR CANVAS HUD PAINTERS
+       ========================================================================== */
+    class HorizonHudPainter {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+      }
+
+      draw(pitchRad, rollRad, headingDeg) {
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const cx = w / 2;
+        const cy = h / 2;
+
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        // Rotate HUD by roll angle
+        ctx.rotate(-rollRad);
+
+        // Pitch ladder offset (1 rad tilt ~ 200px)
+        const pitchOffset = pitchRad * 180;
+
+        // Artificial Horizon Line
+        ctx.strokeStyle = '#00e5ff';
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = 'rgba(0, 229, 255, 0.6)';
+        ctx.shadowBlur = 8;
+
+        // Central horizon split
+        ctx.beginPath();
+        ctx.moveTo(-110, pitchOffset);
+        ctx.lineTo(-30, pitchOffset);
+        ctx.moveTo(30, pitchOffset);
+        ctx.lineTo(110, pitchOffset);
+        ctx.stroke();
+
+        // Pitch Degree Increments (+/- 10, 20, 30 deg)
+        ctx.lineWidth = 1.5;
+        ctx.font = '10px JetBrains Mono';
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.85)';
+        ctx.textAlign = 'center';
+
+        const degIntervals = [-30, -20, -10, 10, 20, 30];
+        degIntervals.forEach(deg => {
+          const dy = pitchOffset - THREE.MathUtils.degToRad(deg) * 180;
+          const barWidth = Math.abs(deg) === 20 ? 46 : 28;
+
+          ctx.beginPath();
+          // Dashed if negative pitch (ground dive)
+          if (deg < 0) ctx.setLineDash([4, 4]);
+          ctx.moveTo(-barWidth, dy);
+          ctx.lineTo(-12, dy);
+          ctx.moveTo(12, dy);
+          ctx.lineTo(barWidth, dy);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.fillText(deg.toString(), -barWidth - 10, dy + 3);
+          ctx.fillText(deg.toString(), barWidth + 10, dy + 3);
+        });
+
+        ctx.restore();
+
+        // Fixed Aircraft Crosshair Reference (Reticle)
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = 'rgba(245, 158, 11, 0.8)';
+        ctx.shadowBlur = 6;
+
+        ctx.beginPath();
+        // Center dot
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fill();
+
+        // Left wing
+        ctx.moveTo(cx - 30, cy);
+        ctx.lineTo(cx - 10, cy);
+        ctx.lineTo(cx - 10, cy + 6);
+
+        // Right wing
+        ctx.moveTo(cx + 30, cy);
+        ctx.lineTo(cx + 10, cy);
+        ctx.lineTo(cx + 10, cy + 6);
+        ctx.stroke();
+      }
+    }
+
+    class RadarMapPainter {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+      }
+
+      draw(dronePos, droneYaw, homePos = new THREE.Vector3(0, 0, 0)) {
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const cx = w / 2;
+        const cy = h / 2;
+        const radarRadius = w / 2 - 4;
+        const scale = 0.55; // pixels per meter
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Radar background grid
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.2)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radarRadius * 0.4, 0, Math.PI * 2);
+        ctx.arc(cx, cy, radarRadius * 0.75, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, 4); ctx.lineTo(cx, h - 4);
+        ctx.moveTo(4, cy); ctx.lineTo(w - 4, cy);
+        ctx.stroke();
+
+        // Home Point icon relative to drone center
+        const dx = (homePos.x - dronePos.x) * scale;
+        const dz = (homePos.z - dronePos.z) * scale;
+
+        // Clamp to radar perimeter if out of view
+        const dist = Math.hypot(dx, dz);
+        let hx = cx + dx;
+        let hy = cy + dz;
+        if (dist > radarRadius - 8) {
+          hx = cx + (dx / dist) * (radarRadius - 8);
+          hy = cy + (dz / dist) * (radarRadius - 8);
+        }
+
+        // Draw Home Badge (Green H)
+        ctx.fillStyle = '#10b981';
+        ctx.beginPath();
+        ctx.arc(hx, hy, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9px Orbitron';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('H', hx, hy);
+
+        // Center Drone Heading Triangle
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-droneYaw);
+
+        ctx.fillStyle = '#00e5ff';
+        ctx.beginPath();
+        ctx.moveTo(0, -9);
+        ctx.lineTo(-6, 6);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(6, 6);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    /* ==========================================================================
+       MAIN APPLICATION ORCHESTRATOR
+       ========================================================================== */
+    class Application {
+      constructor() {
+        this.controller = new ControllerEngine();
+        this.physics = new DronePhysics();
+        this.scene = new SimulatorScene('webgl-canvas');
+        this.horizonHud = new HorizonHudPainter('attitude-canvas');
+        this.radarMap = new RadarMapPainter('radar-canvas');
+
+        this.currentDrone = 'mini';
+        this.currentView = 'chase'; // 'chase' (Normal LOS) | 'fpv' (FPV Cockpit)
+
+        this.lastTime = performance.now();
+        this.battery = 100.0; // Battery Percentage
+
+        this.initDOM();
+        this.bindEvents();
+        this.animate = this.animate.bind(this);
+        requestAnimationFrame(this.animate);
+      }
+
+      initDOM() {
+        // Elements
+        this.elModePill = document.getElementById('flight-mode-pill');
+        this.elStatusBanner = document.getElementById('status-banner');
+        this.elCamLabel = document.getElementById('cam-mode-label');
+        this.elBattPct = document.getElementById('batt-pct');
+        this.elBattVolt = document.getElementById('batt-volt');
+        this.elHspeed = document.getElementById('val-hspeed');
+        this.elVspeed = document.getElementById('val-vspeed');
+        this.elDist = document.getElementById('val-dist');
+        this.elAlt = document.getElementById('val-alt');
+        this.elHeading = document.getElementById('val-heading');
+        this.elThrustPct = document.getElementById('val-thrust-pct');
+        this.elRpmBar = document.getElementById('rpm-bar-fill');
+        this.elRpmText = document.getElementById('val-rpm');
+        this.elMotorState = document.getElementById('motor-state-text');
+        this.btnArm = document.getElementById('btn-toggle-arm');
+        this.btnArmText = document.getElementById('btn-arm-text');
+
+        // Drone Selection & Camera Elements
+        this.droneModal = document.getElementById('drone-select-modal');
+        this.selectedDroneLabel = document.getElementById('selected-drone-label');
+
+        // Modal Elements
+        this.calibModal = document.getElementById('calib-modal');
+        this.leftStickThumb = document.getElementById('left-stick-thumb');
+        this.rightStickThumb = document.getElementById('right-stick-thumb');
+        this.leftStickCoords = document.getElementById('left-stick-coords');
+        this.rightStickCoords = document.getElementById('right-stick-coords');
+        this.calibConnText = document.getElementById('calib-conn-text');
+        this.calibConnDot = document.getElementById('calib-conn-dot');
+        this.calibPadId = document.getElementById('calib-pad-id');
+
+        // DJI RC Remote Manager Elements
+        this.rcModal = document.getElementById('rc-manager-modal');
+        this.topRcStatus = document.getElementById('top-rc-status');
+        this.rcDeviceList = document.getElementById('rc-device-list');
+        this.rcScanHeadline = document.getElementById('rc-scan-headline');
+        this.rcScanSubtitle = document.getElementById('rc-scan-subtitle');
+        this.chkAutoConnect = document.getElementById('chk-auto-connect');
+      }
+
+      bindEvents() {
+        // Arm / Disarm Button
+        // Arm / Disarm Button
+        this.btnArm.addEventListener('click', () => this.toggleArmState());
+
+        // Reset Position Button
+        document.getElementById('btn-reset-pos').addEventListener('click', () => this.resetDronePosition());
+
+        // Drone Selection Modal Open / Close
+        const btnDroneSelect = document.getElementById('btn-drone-select');
+        if (btnDroneSelect) {
+          btnDroneSelect.addEventListener('click', () => {
+            if (this.droneModal) this.droneModal.classList.add('open');
+          });
+        }
+        const btnCloseDrone = document.getElementById('btn-close-drone-modal');
+        if (btnCloseDrone) {
+          btnCloseDrone.addEventListener('click', () => {
+            if (this.droneModal) this.droneModal.classList.remove('open');
+          });
+        }
+        if (this.droneModal) {
+          this.droneModal.addEventListener('click', (e) => {
+            if (e.target === this.droneModal) this.droneModal.classList.remove('open');
+          });
+        }
+
+        // Drone Picker Cards & Action Buttons
+        document.querySelectorAll('.btn-pick-drone').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const droneId = btn.getAttribute('data-drone');
+            this.selectDrone(droneId);
+          });
+        });
+        document.querySelectorAll('.drone-card').forEach(card => {
+          card.addEventListener('click', () => {
+            const droneId = card.getAttribute('data-drone');
+            this.selectDrone(droneId);
+          });
+        });
+
+        // Perspective / Camera Toggle (Normal LOS vs FPV Cockpit)
+        const btnCameraToggle = document.getElementById('btn-camera-toggle');
+        if (btnCameraToggle) {
+          btnCameraToggle.addEventListener('click', () => this.toggleCameraView());
+        }
+
+        // Flight Mode Pill Click
+        this.elModePill.addEventListener('click', () => this.cycleFlightMode());
+
+        // DJI RC Remote Manager Modal Open / Close
+        document.getElementById('btn-rc-manager').addEventListener('click', () => {
+          this.rcModal.classList.add('open');
+          if (this.controller.ws && this.controller.ws.readyState === WebSocket.OPEN) {
+            this.controller.ws.send(JSON.stringify({ cmd: 'scan' }));
+          }
+        });
+        document.getElementById('btn-close-rc-modal').addEventListener('click', () => {
+          this.rcModal.classList.remove('open');
+        });
+        this.rcModal.addEventListener('click', (e) => {
+          if (e.target === this.rcModal) this.rcModal.classList.remove('open');
+        });
+
+        // Scan Wi-Fi Now Button
+        document.getElementById('btn-scan-now').addEventListener('click', () => {
+          if (this.controller.ws && this.controller.ws.readyState === WebSocket.OPEN) {
+            this.controller.ws.send(JSON.stringify({ cmd: 'scan' }));
+            showToast('SCANNING LOCAL WI-FI FOR DJI RC...');
+          } else {
+            showToast('BRIDGE NOT RUNNING - START Start_Simulator.bat');
+          }
+        });
+
+        // Demo RC Emulation Button
+        document.getElementById('btn-demo-rc').addEventListener('click', () => {
+          if (this.controller.ws && this.controller.ws.readyState === WebSocket.OPEN) {
+            this.controller.ws.send(JSON.stringify({ cmd: 'connect', ip: '127.0.0.1' }));
+          }
+          showToast('DEMO RC EMULATION ACTIVE');
+        });
+
+        // Auto Connect Toggle
+        this.chkAutoConnect.addEventListener('change', (e) => {
+          if (this.controller.ws && this.controller.ws.readyState === WebSocket.OPEN) {
+            this.controller.ws.send(JSON.stringify({ cmd: 'set_auto_connect', value: e.target.checked }));
+          }
+          showToast(e.target.checked ? 'AUTO-CONNECT: ENABLED' : 'AUTO-CONNECT: DISABLED');
+        });
+
+        // Calibration Modal Open / Close
+        document.getElementById('btn-calib-modal').addEventListener('click', () => {
+          this.calibModal.classList.add('open');
+        });
+        document.getElementById('btn-close-modal').addEventListener('click', () => {
+          this.calibModal.classList.remove('open');
+        });
+        this.calibModal.addEventListener('click', (e) => {
+          if (e.target === this.calibModal) this.calibModal.classList.remove('open');
+        });
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            if (this.calibModal && this.calibModal.classList.contains('open')) this.calibModal.classList.remove('open');
+            if (this.rcModal && this.rcModal.classList.contains('open')) this.rcModal.classList.remove('open');
+            if (this.droneModal && this.droneModal.classList.contains('open')) this.droneModal.classList.remove('open');
+          }
+        });
+
+        // Sliders & Inversion Toggles
+        const sliderDeadband = document.getElementById('slider-deadband');
+        sliderDeadband.addEventListener('input', (e) => {
+          const val = parseFloat(e.target.value);
+          this.controller.deadband = val;
+          document.getElementById('val-deadband-tag').textContent = val.toFixed(2);
+        });
+
+        const sliderExpo = document.getElementById('slider-expo');
+        sliderExpo.addEventListener('input', (e) => {
+          const val = parseFloat(e.target.value);
+          this.controller.expo = val;
+          document.getElementById('val-expo-tag').textContent = val.toFixed(2);
+        });
+
+        const setupToggle = (id, key) => {
+          const el = document.getElementById(id);
+          el.addEventListener('click', () => {
+            this.controller.invert[key] = !this.controller.invert[key];
+            el.classList.toggle('active', this.controller.invert[key]);
+          });
+        };
+        setupToggle('tog-inv-roll', 'roll');
+        setupToggle('tog-inv-pitch', 'pitch');
+        setupToggle('tog-inv-yaw', 'yaw');
+        setupToggle('tog-inv-throttle', 'throttle');
+
+        document.getElementById('sel-preset').addEventListener('change', (e) => {
+          this.controller.preset = e.target.value;
+          showToast('PRESET APPLIED: ' + e.target.value.toUpperCase());
+        });
+
+        document.getElementById('sel-modal-mode').addEventListener('change', (e) => {
+          this.setFlightMode(e.target.value);
+        });
+      }
+
+      toggleArmState() {
+        if (!this.physics.isArmed) {
+          this.physics.arm();
+          this.btnArm.classList.remove('btn-arm');
+          this.btnArm.classList.add('btn-disarm');
+          this.btnArmText.textContent = 'DISARM MOTORS';
+          this.elMotorState.textContent = 'ARMED';
+          this.elMotorState.style.color = 'var(--accent-green)';
+          this.elStatusBanner.textContent = 'MOTORS ARMED - READY FOR TAKEOFF';
+          this.elStatusBanner.style.color = 'var(--accent-green)';
+          showToast('MOTORS ARMED');
+        } else {
+          this.physics.disarm();
+          this.btnArm.classList.remove('btn-disarm');
+          this.btnArm.classList.add('btn-arm');
+          this.btnArmText.textContent = 'ARM MOTORS';
+          this.elMotorState.textContent = 'DISARMED';
+          this.elMotorState.style.color = 'var(--accent-red)';
+          this.elStatusBanner.textContent = 'MOTORS DISARMED (SAFE)';
+          this.elStatusBanner.style.color = 'var(--accent-yellow)';
+          showToast('MOTORS DISARMED');
+        }
+      }
+
+      resetDronePosition() {
+        this.physics.reset(new THREE.Vector3(0, 0.25, 0));
+        this.btnArm.classList.remove('btn-disarm');
+        this.btnArm.classList.add('btn-arm');
+        this.btnArmText.textContent = 'ARM MOTORS';
+        this.elMotorState.textContent = 'DISARMED';
+        this.elMotorState.style.color = 'var(--accent-red)';
+        this.elStatusBanner.textContent = 'READY TO FLY (GPS)';
+        this.elStatusBanner.style.color = 'var(--accent-green)';
+        showToast('RESET TO LAUNCH PAD');
+      }
+
+      toggleCameraView() {
+        const profile = DRONE_PROFILES[this.currentDrone] || DRONE_PROFILES.mini;
+        if (profile.fpvOnly) {
+          showToast('DJI AVATA 2 IS LOCKED TO FPV VIEW ONLY');
+          audioEngine.playBeep(350, 0.15, 'square');
+          return;
+        }
+
+        if (this.currentView === 'chase') {
+          this.currentView = 'fpv';
+          this.scene.setCameraMode('fpv');
+          this.elCamLabel.textContent = 'FPV COCKPIT';
+          showToast('PERSPECTIVE: FPV COCKPIT');
+        } else {
+          this.currentView = 'chase';
+          this.scene.setCameraMode('chase');
+          this.elCamLabel.textContent = 'NORMAL (LOS)';
+          showToast('PERSPECTIVE: NORMAL (LOS)');
+        }
+        audioEngine.playBeep(750, 0.08);
+      }
+
+      cycleCameraMode() {
+        this.toggleCameraView();
+      }
+
+      selectDrone(droneId) {
+        if (!DRONE_PROFILES[droneId]) return;
+        this.currentDrone = droneId;
+        const profile = DRONE_PROFILES[droneId];
+
+        // 1. Update Physics specs
+        this.physics.setDroneProfile(droneId);
+
+        // 2. Update Sound Profile
+        if (typeof audioEngine !== 'undefined' && audioEngine.setSoundProfile) {
+          audioEngine.setSoundProfile(profile.soundBaseFreqs || droneId);
+        }
+
+        // 3. Rebuild 3D Model
+        this.scene.buildDroneModel(droneId);
+
+        // 4. Update Drone Cards in modal
+        document.querySelectorAll('.drone-card').forEach(card => {
+          card.classList.toggle('selected', card.getAttribute('data-drone') === droneId);
+        });
+
+        // 5. Update Top HUD Label
+        if (this.selectedDroneLabel) {
+          this.selectedDroneLabel.textContent = profile.name.toUpperCase();
+        }
+
+        // 6. Handle FPV constraint for Avata vs flexibility for Mini
+        if (profile.fpvOnly) {
+          this.currentView = 'fpv';
+          this.scene.setCameraMode('fpv');
+          this.elCamLabel.textContent = 'FPV (AVATA LOCKED)';
+          showToast(`${profile.name.toUpperCase()} SELECTED - LOCKED TO FPV`);
+        } else {
+          // If switching to Mini 4 Pro, restore current view
+          this.scene.setCameraMode(this.currentView);
+          this.elCamLabel.textContent = this.currentView === 'fpv' ? 'FPV COCKPIT' : 'NORMAL (LOS)';
+          showToast(`${profile.name.toUpperCase()} SELECTED`);
+        }
+
+        // Close modal
+        if (this.droneModal) this.droneModal.classList.remove('open');
+        audioEngine.playBeep(950, 0.12);
+      }
+
+      cycleFlightMode() {
+        const modes = ['normal', 'sport', 'cine', 'acro'];
+        const idx = modes.indexOf(this.physics.flightMode);
+        const nextMode = modes[(idx + 1) % modes.length];
+        this.setFlightMode(nextMode);
+      }
+
+      setFlightMode(mode) {
+        this.physics.setFlightMode(mode);
+        const pill = this.elModePill;
+        pill.className = 'hud-pill mode-' + mode;
+        pill.textContent = mode.toUpperCase() + ' MODE';
+        document.getElementById('sel-modal-mode').value = mode;
+        audioEngine.playBeep(mode === 'sport' ? 1200 : 800, 0.1);
+        showToast('FLIGHT MODE: ' + mode.toUpperCase());
+      }
+
+      updateTelemetry(dt) {
+        const pos = this.physics.position;
+        const vel = this.physics.velocity;
+
+        // Calculate Speeds
+        const hSpeed = Math.hypot(vel.x, vel.z);
+        const vSpeed = vel.y;
+        const distHome = Math.hypot(pos.x, pos.z);
+        const alt = Math.max(0, pos.y - 0.22);
+
+        // Heading in Degrees (0 - 360)
+        let headingDeg = THREE.MathUtils.radToDeg(-this.physics.euler.y) % 360;
+        if (headingDeg < 0) headingDeg += 360;
+
+        // Update DOM Telemetry Texts
+        this.elHspeed.textContent = hSpeed.toFixed(1);
+        this.elVspeed.textContent = (vSpeed >= 0 ? '+' : '') + vSpeed.toFixed(1);
+        this.elDist.textContent = Math.round(distHome);
+        this.elAlt.textContent = alt.toFixed(1);
+        this.elHeading.textContent = Math.round(headingDeg).toString().padStart(3, '0');
+
+        // Throttle & RPM Bar
+        const throtPct = Math.round(this.controller.inputs.throttle * 100);
+        this.elThrustPct.textContent = throtPct + '%';
+        this.elRpmBar.style.width = Math.min(100, (this.physics.motorRpm / 14000) * 100) + '%';
+        this.elRpmText.textContent = Math.round(this.physics.motorRpm) + ' RPM';
+
+        // Battery Drainage Simulation
+        if (this.physics.isArmed && this.battery > 0) {
+          const drainRate = 0.04 + (this.physics.motorRpm / 14000) * 0.12;
+          this.battery = Math.max(0, this.battery - drainRate * dt);
+          this.elBattPct.textContent = Math.round(this.battery) + '%';
+          const voltage = 14.8 + (this.battery / 100) * 2.0;
+          this.elBattVolt.textContent = voltage.toFixed(1) + 'V';
+
+          if (this.battery < 20 && !this._battWarn) {
+            this._battWarn = true;
+            showToast('WARNING: LOW BATTERY < 20%');
+            audioEngine.playBeep(400, 0.4, 'sawtooth');
+          }
+        }
+
+        // Draw 2D HUD Overlays
+        this.horizonHud.draw(this.physics.euler.x, this.physics.euler.z, headingDeg);
+        this.radarMap.draw(pos, this.physics.euler.y);
+
+        // Audio engine update
+        audioEngine.update(this.physics.motorRpm / 14000, this.physics.isArmed);
+
+        // Update Calibration Modal if open
+        if (this.calibModal.classList.contains('open')) {
+          this.updateCalibrationModalUI();
+        }
+      }
+
+      updateCalibrationModalUI() {
+        const ctrl = this.controller;
+        if (ctrl.bridgeConnected) {
+          this.calibConnText.textContent = 'DJI RC Bridge: ' + ctrl.bridgeSource;
+          this.calibConnDot.className = 'status-dot';
+          this.calibPadId.textContent = 'ws://localhost:8765 (Active)';
+        } else if (ctrl.gamepadConnected) {
+          this.calibConnText.textContent = 'Gamepad API: ' + ctrl.gamepadName;
+          this.calibConnDot.className = 'status-dot';
+          this.calibPadId.textContent = 'Hardware Gamepad Connected';
+        } else {
+          this.calibConnText.textContent = 'Using Keyboard Controls';
+          this.calibConnDot.className = 'status-dot warn';
+          this.calibPadId.textContent = 'No Hardware Controller Detected';
+        }
+
+        // Stick Thumb coordinates (pad is 140x140, max radius ~52px)
+        const maxRadius = 52;
+        // Left Stick (Mode 2: Yaw=X, Throttle=Y)
+        const lx = ctrl.raw.yaw * maxRadius;
+        const ly = -ctrl.raw.throttle * maxRadius;
+        this.leftStickThumb.style.transform = `translate(${lx}px, ${ly}px)`;
+        this.leftStickCoords.textContent = `YAW: ${ctrl.raw.yaw.toFixed(2)} | THROT: ${ctrl.raw.throttle.toFixed(2)}`;
+
+        // Right Stick (Mode 2: Roll=X, Pitch=Y)
+        const rx = ctrl.raw.roll * maxRadius;
+        const ry = -ctrl.raw.pitch * maxRadius;
+        this.rightStickThumb.style.transform = `translate(${rx}px, ${ry}px)`;
+        this.rightStickCoords.textContent = `ROLL: ${ctrl.raw.roll.toFixed(2)} | PITCH: ${ctrl.raw.pitch.toFixed(2)}`;
+      }
+
+      setBridgeOnline(online) {
+        if (!online) {
+          this.topRcStatus.textContent = 'DJI RC: BRIDGE OFFLINE';
+          this.topRcStatus.style.color = 'var(--text-muted)';
+          if (this.rcScanHeadline) {
+            this.rcScanHeadline.textContent = 'BRIDGE SERVICE OFFLINE';
+            this.rcScanHeadline.style.color = 'var(--accent-yellow)';
+            this.rcScanSubtitle.textContent = 'Double-click Start_Simulator.bat or run python dji_rc_bridge.py on PC';
+          }
+        } else {
+          this.topRcStatus.textContent = 'DJI RC: SCANNING...';
+          this.topRcStatus.style.color = 'var(--accent-cyan)';
+          if (this.rcScanHeadline) {
+            this.rcScanHeadline.textContent = 'SEARCHING FOR DJI CONTROLLERS...';
+            this.rcScanHeadline.style.color = '#fff';
+            this.rcScanSubtitle.textContent = 'Scanning local Wi-Fi and USB interfaces automatically';
+          }
+        }
+      }
+
+      updateRcTopStatus(data) {
+        if (data.connected) {
+          const name = data.active_device || 'CONNECTED';
+          const shortName = name.length > 18 ? 'CONNECTED' : name;
+          this.topRcStatus.textContent = 'DJI RC: ' + shortName;
+          this.topRcStatus.style.color = 'var(--accent-green)';
+        } else {
+          this.topRcStatus.textContent = 'DJI RC: SCANNING...';
+          this.topRcStatus.style.color = 'var(--accent-cyan)';
+        }
+      }
+
+      updateDiscoveredRemotesUI(data) {
+        if (!this.rcDeviceList) return;
+
+        if (data.auto_connect !== undefined && this.chkAutoConnect) {
+          this.chkAutoConnect.checked = data.auto_connect;
+        }
+
+        if (data.connected && data.active_device) {
+          this.rcScanHeadline.textContent = 'DJI CONTROLLER CONNECTED!';
+          this.rcScanHeadline.style.color = 'var(--accent-green)';
+          this.rcScanSubtitle.textContent = `Streaming sticks live from ${data.active_device}`;
+        } else if (data.scanning) {
+          this.rcScanHeadline.textContent = 'SCANNING WI-FI FOR DJI CONTROLLERS...';
+          this.rcScanHeadline.style.color = 'var(--accent-cyan)';
+          this.rcScanSubtitle.textContent = 'Checking all devices on your local Wi-Fi network';
+        } else {
+          this.rcScanHeadline.textContent = 'SEARCHING FOR DJI CONTROLLERS...';
+          this.rcScanHeadline.style.color = '#fff';
+          this.rcScanSubtitle.textContent = 'Turn on your DJI RC on the same Wi-Fi to connect automatically';
+        }
+
+        const devices = data.discovered_devices || [];
+        if (devices.length === 0) {
+          this.rcDeviceList.innerHTML = `
+            <div style="background:rgba(255,255,255,0.02); border:1px dashed rgba(255,255,255,0.12); border-radius:8px; padding:18px; text-align:center; color:var(--text-muted); font-size:12px; line-height:1.5;">
+              <span style="color:#fff; font-weight:600;">No DJI controllers found yet.</span><br>
+              Make sure your <strong>DJI RC</strong> is powered on and connected to the same Wi-Fi.<br>
+              It will appear and connect here automatically!
+            </div>
+          `;
+        } else {
+          this.rcDeviceList.innerHTML = devices.map(dev => {
+            const isConnected = data.connected && (data.active_device === dev.ip || dev.status === 'connected');
+            return `
+              <div class="rc-device-card ${isConnected ? 'connected' : ''}">
+                <div class="rc-icon-box ${isConnected ? 'connected' : ''}">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="6" cy="12" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M12 9v6"></path><path d="M9 12h6"></path></svg>
+                </div>
+                <div class="rc-device-info">
+                  <div class="rc-device-title">${dev.model || 'DJI RC Remote'}</div>
+                  <div class="rc-device-meta">IP: ${dev.ip} &bull; ${dev.type.toUpperCase()} (Port ${dev.port || 40007})</div>
+                </div>
+                <div>
+                  ${isConnected 
+                    ? '<span style="font-family:var(--font-mono); font-size:11px; font-weight:bold; color:var(--accent-green); background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); padding:4px 8px; border-radius:4px;">ACTIVE</span>'
+                    : `<button class="hud-btn btn-connect-device" data-ip="${dev.ip}" style="padding:4px 10px; font-size:11px; border-color:var(--accent-cyan); color:#fff;">CONNECT</button>`
+                  }
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          this.rcDeviceList.querySelectorAll('.btn-connect-device').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              const ip = e.currentTarget.getAttribute('data-ip');
+              if (this.controller.ws && this.controller.ws.readyState === WebSocket.OPEN) {
+                this.controller.ws.send(JSON.stringify({ cmd: 'connect', ip: ip }));
+                showToast('CONNECTING TO ' + ip);
+              }
+            });
+          });
+        }
+      }
+
+      animate(now) {
+        requestAnimationFrame(this.animate);
+        const dt = Math.min((now - this.lastTime) / 1000, 0.1);
+        this.lastTime = now;
+
+        // 1. Poll Gamepad & Keyboard
+        this.controller.poll();
+
+        // 2. Step Multirotor Physics (running with sub-step for rock-solid stability)
+        const subSteps = 2;
+        const subDt = dt / subSteps;
+        for (let i = 0; i < subSteps; i++) {
+          this.physics.update(subDt, this.controller.inputs);
+        }
+
+        // 3. Update Visuals & 3D Scene
+        this.scene.update(this.physics, dt);
+
+        // 4. Update Telemetry & HUD
+        this.updateTelemetry(dt);
+      }
+    }
+
+    /* ==========================================================================
+       UTILITIES & UI HELPERS
+       ========================================================================== */
+    let toastTimeout = null;
+    function showToast(text) {
+      const el = document.getElementById('toast-msg');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => el.classList.remove('show'), 2600);
+    }
+
+    let gateTimeout = null;
+    function showGatePopup(text) {
+      const el = document.getElementById('gate-popup');
+      el.textContent = text;
+      el.classList.add('active');
+      clearTimeout(gateTimeout);
+      gateTimeout = setTimeout(() => el.classList.remove('active'), 1400);
+    }
+
+    // Launch Application
+    let app = null;
+    window.addEventListener('DOMContentLoaded', () => {
+      app = new Application();
+    });
+  </script>
+</body>
+</html>

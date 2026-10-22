@@ -1,0 +1,17 @@
+# Dependencies & Build artifacts
+node_modules/
+.wrangler/
+dist/
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating System files
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
