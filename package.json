@@ -4,7 +4,8 @@
   "description": "DJI 3D Drone Flight Simulator with FPV and physical DJI RC controller bridge",
   "scripts": {
     "start": "python -m http.server 8080",
-    "deploy": "wrangler pages deploy . --project-name dji-flight-simulator --branch main"
+    "build": "node -e \"const fs=require('fs'); fs.mkdirSync('dist', {recursive:true}); fs.copyFileSync('index.html', 'dist/index.html');\"",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name dji-flight-simulator --branch main"
   },
   "devDependencies": {
     "wrangler": "^3.114.0"

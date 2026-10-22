@@ -1,8 +1,11 @@
 # AeroSim Pro | DJI 3D Drone Flight Simulator
 
-A production-grade, single-file 3D Drone Flight Simulator web application built with Three.js and the HTML5 Gamepad API, featuring realistic multirotor physics, interactive DJI O3 telemetry HUD, and physical DJI RC controller auto-discovery.
+[![Live on Cloudflare Pages](https://img.shields.io/badge/Live%20Demo-Cloudflare%20Pages-f38020?style=for-the-badge&logo=cloudflare)](https://dji-flight-simulator.pages.dev)
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github)](https://github.com/peterchehab1-hub/dji-flight-simulator)
 
-Designed for immediate deployment to **Cloudflare Pages**.
+> **Live Deployment:** [https://dji-flight-simulator.pages.dev](https://dji-flight-simulator.pages.dev)
+
+A production-grade, single-file 3D Drone Flight Simulator web application built with Three.js and the HTML5 Gamepad API, featuring realistic multirotor physics, interactive DJI O3 telemetry HUD, and physical DJI RC controller auto-discovery.
 
 ---
 
